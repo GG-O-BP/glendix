@@ -83,6 +83,9 @@ export function run_with_bridge(command) {
   // 바인딩 자동 갱신 (bindings.json 있을 때만)
   generate_bindings();
 
+  // Gleam 빌드 출력 보장 (Rollup이 .mjs를 resolve할 수 있도록)
+  execSync("gleam build", { stdio: "inherit", shell: true });
+
   const widgetName = JSON.parse(readFileSync("package.json", "utf-8")).widgetName;
   const gleamProject = readFileSync("gleam.toml", "utf-8").match(/^name\s*=\s*"([^"]+)"/m)[1];
 

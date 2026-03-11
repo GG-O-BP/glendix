@@ -87,7 +87,7 @@ PM 감지 메커니즘:
 - `bun.lockb` 또는 `bun.lock` 존재 → bun
 - 그 외 → npm (기본값)
 
-`run_tool(args)` 함수가 감지된 runner + `pluggable-widgets-tools` + args를 조합하여 실행한다. `run_tool_with_bridge(args)`는 `package.json`의 `widgetName`과 `gleam.toml`의 `name`을 읽어 브릿지 JS 파일(`src/{WidgetName}.js`, `src/{WidgetName}.editorConfig.js`, `src/{WidgetName}.editorPreview.js`)을 자동 생성하고, 명령 완료 후 삭제한다. editorConfig과 editorPreview 브릿지는 각각 `src/editor_config.gleam`, `src/editor_preview.gleam` 존재 시에만 생성된다. `run_with_bridge`는 브릿지 생성 전에 `generate_bindings()`를 호출하여 바인딩도 자동 갱신한다. 7개 스크립트 모듈(`build`, `dev`, `start`, `install`, `release`, `lint`, `lint_fix`)은 각각 `pub fn main()`을 노출하여 `gleam run -m glendix/<name>`으로 실행한다.
+`run_tool(args)` 함수가 감지된 runner + `pluggable-widgets-tools` + args를 조합하여 실행한다. `run_tool_with_bridge(args)`는 `package.json`의 `widgetName`과 `gleam.toml`의 `name`을 읽어 브릿지 JS 파일(`src/{WidgetName}.js`, `src/{WidgetName}.editorConfig.js`, `src/{WidgetName}.editorPreview.js`)을 자동 생성하고, 명령 완료 후 삭제한다. editorConfig과 editorPreview 브릿지는 각각 `src/editor_config.gleam`, `src/editor_preview.gleam` 존재 시에만 생성된다. `run_with_bridge`는 브릿지 생성 전에 `generate_bindings()`를 호출하여 바인딩을 자동 갱신하고, `gleam build`를 실행하여 Gleam 빌드 출력(.mjs)이 최신 상태임을 보장한다. 7개 스크립트 모듈(`build`, `dev`, `start`, `install`, `release`, `lint`, `lint_fix`)은 각각 `pub fn main()`을 노출하여 `gleam run -m glendix/<name>`으로 실행한다.
 
 ## 외부 React 컴포넌트 바인딩
 

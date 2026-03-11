@@ -5,7 +5,9 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(grep -n \"toList\\\\|from_option\\\\|to_option\" /c/Users/dohye/workspace/glendix/src/glendix/*.mjs)",
-      "Bash(cd \"C:/Users/dohye/workspace/glendix\" && gleam check 2>&1)"
+      "Bash(cd \"C:/Users/dohye/workspace/glendix\" && gleam check 2>&1)",
+      "Bash(cd \"C:/Users/dohye/workspace/gleam-recharts-widget\" && gleam build 2>&1)",
+      "Bash(cd \"C:/Users/dohye/workspace/gleam-recharts-widget\" && gleam run -m glendix/build 2>&1)"
     ]
   }
 }
