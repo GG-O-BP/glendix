@@ -46,3 +46,9 @@ fn run_with_bridge(command: String) -> Nil
 pub fn run_tool_with_bridge(args: String) -> Nil {
   run_with_bridge(detect_runner() <> " pluggable-widgets-tools " <> args)
 }
+
+/// bindings.json에서 바인딩 코드를 생성한다.
+/// glendix 빌드 경로에 binding_ffi.mjs를 생성하여
+/// 사용자가 .mjs 파일을 작성하지 않아도 외부 React 컴포넌트를 사용할 수 있게 한다.
+@external(javascript, "./cmd_ffi.mjs", "generate_bindings")
+pub fn generate_bindings() -> Nil

@@ -56,6 +56,7 @@ pub fn widget(props: JsProps) -> ReactElement {
 | `glendix/react/hook` | React Hooks — `use_state`, `use_effect`, `use_memo`, `use_callback`, `use_ref` |
 | `glendix/react/event` | 이벤트 타입 + `target_value`, `prevent_default`, `key` |
 | `glendix/react/html` | HTML 태그 편의 함수 — `div`, `span`, `input`, `button` 등 (순수 Gleam, FFI 없음) |
+| `glendix/binding` | 외부 React 컴포넌트 바인딩 — `.mjs` 없이 `bindings.json`만으로 사용 |
 
 ### Mendix
 
@@ -152,13 +153,53 @@ react.when_some(maybe_user, fn(user) {
 })
 ```
 
+### 외부 React 컴포넌트 사용 (바인딩)
+
+`.mjs` 파일 작성 없이 외부 React 라이브러리를 사용합니다.
+
+**1. `bindings.json` 작성:**
+
+```json
+{
+  "recharts": {
+    "components": ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
+  }
+}
+```
+
+**2. `gleam run -m glendix/install` 실행** (바인딩 자동 생성)
+
+**3. 순수 Gleam으로 사용:**
+
+```gleam
+import glendix/binding
+import glendix/react
+import glendix/react/prop
+
+fn recharts() { binding.module("recharts") }
+
+pub fn my_chart(data) -> react.ReactElement {
+  react.component(
+    binding.resolve(recharts(), "PieChart"),
+    prop.new() |> prop.int("width", 400) |> prop.int("height", 300),
+    [
+      react.component(
+        binding.resolve(recharts(), "Pie"),
+        prop.new() |> prop.any("data", data) |> prop.string("dataKey", "value"),
+        [],
+      ),
+    ],
+  )
+}
+```
+
 ## Build Scripts
 
 glendix에 내장된 빌드 스크립트로, 위젯 프로젝트에서 별도 스크립트 파일 없이 `gleam run -m`으로 실행한다.
 
 | 명령어 | 설명 |
 |--------|------|
-| `gleam run -m glendix/install` | 의존성 설치 (PM 자동 감지) |
+| `gleam run -m glendix/install` | 의존성 설치 + 바인딩 생성 (PM 자동 감지) |
 | `gleam run -m glendix/build` | 프로덕션 빌드 (.mpk 생성) |
 | `gleam run -m glendix/dev` | 개발 서버 (HMR, port 3000) |
 | `gleam run -m glendix/start` | Mendix 테스트 프로젝트 연동 |
@@ -198,12 +239,14 @@ glendix/
     icon.gleam           ← Icon
     formatter.gleam      ← ValueFormatter
     filter.gleam         ← FilterCondition 빌더
-  cmd.gleam              ← 셸 명령어 실행 + PM 감지
-  cmd_ffi.mjs            ← Node.js child_process + fs FFI
+  binding.gleam          ← 외부 React 컴포넌트 바인딩 API
+  binding_ffi.mjs        ← 바인딩 FFI (install 시 자동 교체)
+  cmd.gleam              ← 셸 명령어 실행 + PM 감지 + 바인딩 생성
+  cmd_ffi.mjs            ← Node.js child_process + fs FFI + 바인딩 생성
   build.gleam            ← 빌드 스크립트
   dev.gleam              ← 개발 서버 스크립트
   start.gleam            ← Mendix 연동 스크립트
-  install.gleam          ← 의존성 설치 스크립트
+  install.gleam          ← 의존성 설치 + 바인딩 생성 스크립트
   release.gleam          ← 릴리즈 빌드 스크립트
   lint.gleam             ← ESLint 스크립트
   lint_fix.gleam         ← ESLint 자동 수정 스크립트
