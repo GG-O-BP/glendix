@@ -1,5 +1,6 @@
 // React 핵심 타입 + createElement + fragment/text/none
 
+import gleam/dynamic.{type Dynamic}
 import gleam/option.{type Option, None, Some}
 
 // === Opaque 타입 ===
@@ -16,34 +17,45 @@ pub type Component
 /// React ref 객체
 pub type Ref(a)
 
-// Props 타입 (react/prop 모듈에서 빌더 제공)
-pub type Props
+/// React Context 타입
+pub type Context(a)
 
-// === 요소 생성 FFI 바인딩 ===
+// === 요소 생성 (Attribute 리스트 기반) ===
 
-/// 범용 HTML 요소 생성
-@external(javascript, "./react_ffi.mjs", "create_element")
-pub fn el(
+/// 속성 리스트 기반 HTML 요소 생성
+@external(javascript, "./react_ffi.mjs", "create_element_attrs")
+pub fn element(
   tag: String,
-  props: Props,
+  attrs: List(a),
   children: List(ReactElement),
 ) -> ReactElement
 
-/// props 없이 자식만으로 요소 생성
+/// 속성 없이 자식만으로 요소 생성
 @external(javascript, "./react_ffi.mjs", "create_element_no_props")
-pub fn el_(tag: String, children: List(ReactElement)) -> ReactElement
+pub fn element_(tag: String, children: List(ReactElement)) -> ReactElement
 
 /// self-closing 요소 (input, img, br 등)
-@external(javascript, "./react_ffi.mjs", "create_void_element")
-pub fn void(tag: String, props: Props) -> ReactElement
+@external(javascript, "./react_ffi.mjs", "create_void_attrs")
+pub fn void_element(tag: String, attrs: List(a)) -> ReactElement
 
-/// React 컴포넌트 합성
-@external(javascript, "./react_ffi.mjs", "create_component")
-pub fn component(
+/// 속성 리스트 기반 React 컴포넌트 합성
+@external(javascript, "./react_ffi.mjs", "create_component_attrs")
+pub fn component_el(
   comp: Component,
-  props: Props,
+  attrs: List(a),
   children: List(ReactElement),
 ) -> ReactElement
+
+/// 속성 없이 자식만으로 컴포넌트 요소 생성
+@external(javascript, "./react_ffi.mjs", "create_component_no_props")
+pub fn component_el_(
+  comp: Component,
+  children: List(ReactElement),
+) -> ReactElement
+
+/// self-closing 컴포넌트 (children 없음)
+@external(javascript, "./react_ffi.mjs", "create_component_void")
+pub fn void_component_el(comp: Component, attrs: List(a)) -> ReactElement
 
 // === Fragment / null / text ===
 
@@ -62,6 +74,33 @@ pub fn none() -> ReactElement
 /// 텍스트 노드
 @external(javascript, "./react_ffi.mjs", "text")
 pub fn text(content: String) -> ReactElement
+
+// === Context API ===
+
+/// Context 생성
+@external(javascript, "./react_ffi.mjs", "create_context")
+pub fn create_context(default: a) -> Context(a)
+
+/// Provider 요소 생성
+@external(javascript, "./react_ffi.mjs", "context_provider")
+pub fn provider(
+  context: Context(a),
+  value: a,
+  children: List(ReactElement),
+) -> ReactElement
+
+// === 컴포넌트 정의 ===
+
+/// 이름 있는 React 컴포넌트 정의 (DevTools 표시, React.memo 가능)
+@external(javascript, "./react_ffi.mjs", "define_component")
+pub fn define_component(
+  name: String,
+  render: fn(props) -> ReactElement,
+) -> Component
+
+/// React.memo 적용 (props 동일 시 리렌더 방지)
+@external(javascript, "./react_ffi.mjs", "memo_component")
+pub fn memo(component: Component) -> Component
 
 // === 순수 Gleam 헬퍼 ===
 
@@ -83,3 +122,44 @@ pub fn when_some(
     None -> none()
   }
 }
+
+// === 고급 컴포넌트 ===
+
+/// React.StrictMode (개발 모드 이중 렌더링 감지)
+@external(javascript, "./react_ffi.mjs", "strict_mode")
+pub fn strict_mode(children: List(ReactElement)) -> ReactElement
+
+/// React.Suspense (비동기 경계)
+@external(javascript, "./react_ffi.mjs", "suspense")
+pub fn suspense(
+  fallback: ReactElement,
+  children: List(ReactElement),
+) -> ReactElement
+
+/// React.Profiler (렌더링 성능 측정)
+@external(javascript, "./react_ffi.mjs", "profiler")
+pub fn profiler(
+  id: String,
+  on_render: fn(String, String, Float, Float, Float, Float) -> Nil,
+  children: List(ReactElement),
+) -> ReactElement
+
+/// ReactDOM.createPortal (모달/팝업 — 위젯 DOM 외부에 렌더링)
+@external(javascript, "./react_ffi.mjs", "portal")
+pub fn portal(element: ReactElement, container: Dynamic) -> ReactElement
+
+/// React.forwardRef (부모 ref 전달)
+@external(javascript, "./react_ffi.mjs", "forward_ref")
+pub fn forward_ref(render: fn(props, Ref(a)) -> ReactElement) -> Component
+
+/// React.memo 커스텀 비교 함수 적용
+@external(javascript, "./react_ffi.mjs", "memo_custom")
+pub fn memo_(component: Component, are_equal: fn(a, a) -> Bool) -> Component
+
+/// React.startTransition (훅 없이 독립 함수로 사용)
+@external(javascript, "./react_ffi.mjs", "start_transition")
+pub fn start_transition(callback: fn() -> Nil) -> Nil
+
+/// ReactDOM.flushSync — 동기 DOM 업데이트 강제 (상태 변경 후 DOM 측정 시 필요)
+@external(javascript, "./react_ffi.mjs", "flush_sync")
+pub fn flush_sync(callback: fn() -> Nil) -> Nil

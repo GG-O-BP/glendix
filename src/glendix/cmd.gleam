@@ -52,3 +52,8 @@ pub fn run_tool_with_bridge(args: String) -> Nil {
 /// 사용자가 .mjs 파일을 작성하지 않아도 외부 React 컴포넌트를 사용할 수 있게 한다.
 @external(javascript, "./cmd_ffi.mjs", "generate_bindings")
 pub fn generate_bindings() -> Nil
+
+/// widgets/ 디렉토리의 .mpk에서 위젯 컴포넌트 바인딩을 생성한다.
+/// glendix 빌드 경로에 widget_ffi.mjs와 위젯 에셋을 생성한다.
+@external(javascript, "./cmd_ffi.mjs", "generate_widget_bindings")
+pub fn generate_widget_bindings() -> Nil

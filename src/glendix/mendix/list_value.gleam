@@ -81,6 +81,13 @@ pub fn reload(lv: ListValue) -> Nil
 @external(javascript, "../mendix_ffi.mjs", "list_request_total_count")
 pub fn request_total_count(lv: ListValue, need: Bool) -> Nil
 
+// === 편의 함수 (순수 Gleam) ===
+
+/// 값이 사용 가능한지 확인
+pub fn is_available(lv: ListValue) -> Bool {
+  status(lv) == mendix.Available
+}
+
 // === SortInstruction 빌더 ===
 
 @external(javascript, "../mendix_ffi.mjs", "make_sort_instruction")

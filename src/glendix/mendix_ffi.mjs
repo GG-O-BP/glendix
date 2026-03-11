@@ -23,6 +23,15 @@ export function get_mendix_prop_required(props, key) {
   return props[key];
 }
 
+export function get_string_prop(props, key) {
+  const value = props[key];
+  return value !== undefined && value !== null ? String(value) : "";
+}
+
+export function has_prop(props, key) {
+  return key in props && props[key] !== undefined && props[key] !== null;
+}
+
 // === ValueStatus / ObjectItem ===
 
 export function get_status(obj) {

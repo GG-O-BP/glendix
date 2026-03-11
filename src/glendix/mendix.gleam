@@ -38,11 +38,11 @@ pub fn get_prop(props: JsProps, key: String) -> Option(a)
 pub fn get_prop_required(props: JsProps, key: String) -> a
 
 /// Mendix props에서 문자열 속성값 추출 (undefined → "")
-@external(javascript, "./react_ffi.mjs", "get_string_prop")
+@external(javascript, "./mendix_ffi.mjs", "get_string_prop")
 pub fn get_string_prop(props: JsProps, key: String) -> String
 
 /// Mendix props에서 키 존재 확인
-@external(javascript, "./react_ffi.mjs", "has_prop")
+@external(javascript, "./mendix_ffi.mjs", "has_prop")
 pub fn has_prop(props: JsProps, key: String) -> Bool
 
 // === Status 접근 (status 속성을 가진 모든 Mendix 객체) ===

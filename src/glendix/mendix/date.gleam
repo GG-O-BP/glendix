@@ -1,6 +1,8 @@
 // Mendix JS Date 타입 — Gleam opaque 래퍼
 // EditableValue<Date>에서 반환되는 JS Date 객체를 타입 안전하게 다룸
 
+import gleam/option.{type Option}
+
 // === 타입 ===
 
 pub type JsDate
@@ -80,8 +82,6 @@ pub fn milliseconds(date: JsDate) -> Int
 pub fn day_of_week(date: JsDate) -> Int
 
 // === HTML input[type="date"] 변환 ===
-
-import gleam/option.{type Option}
 
 /// JsDate → "YYYY-MM-DD" 변환 (로컬 시간 기준, input[type="date"] 용)
 @external(javascript, "../mendix_ffi.mjs", "date_to_input_value")

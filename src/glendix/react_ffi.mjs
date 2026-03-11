@@ -1,12 +1,14 @@
-// React FFI 어댑터 - 모든 React 원시 함수를 Gleam에 노출
+// React FFI 어댑터 - 요소 생성, Fragment, Context, 컴포넌트 정의, Props 읽기
 import * as React from "react";
+import * as ReactDOM from "react-dom";
 import { toList } from "../gleam.mjs";
+import { to_props } from "./react/attribute_ffi.mjs";
 
-// === 요소 생성 ===
+// === 요소 생성 (Attribute 리스트 기반) ===
 
-// 범용 요소 생성: tag + props + children(Gleam List)
-export function create_element(tag, props, children) {
-  return React.createElement(tag, props, ...children.toArray());
+// List(Attribute) → React.createElement
+export function create_element_attrs(tag, attrs, children) {
+  return React.createElement(tag, to_props(attrs), ...children.toArray());
 }
 
 // props 없이 자식만
@@ -15,13 +17,23 @@ export function create_element_no_props(tag, children) {
 }
 
 // self-closing 요소 (input, img, br 등)
-export function create_void_element(tag, props) {
-  return React.createElement(tag, props);
+export function create_void_attrs(tag, attrs) {
+  return React.createElement(tag, to_props(attrs));
 }
 
-// React 컴포넌트 합성
-export function create_component(component, props, children) {
-  return React.createElement(component, props, ...children.toArray());
+// React 컴포넌트 합성 (Attribute 리스트 기반)
+export function create_component_attrs(component, attrs, children) {
+  return React.createElement(component, to_props(attrs), ...children.toArray());
+}
+
+// props 없이 자식만
+export function create_component_no_props(component, children) {
+  return React.createElement(component, null, ...children.toArray());
+}
+
+// self-closing 컴포넌트 (children 없음)
+export function create_component_void(component, attrs) {
+  return React.createElement(component, to_props(attrs));
 }
 
 // === Fragment / null / text ===
@@ -42,135 +54,30 @@ export function text(content) {
   return content;
 }
 
-// === Props 빌더 ===
+// === Context API ===
 
-export function empty_props() {
-  return {};
+export function create_context(default_value) {
+  return React.createContext(default_value);
 }
 
-export function set_prop_string(props, key, value) {
-  return { ...props, [key]: value };
+export function context_provider(context, value, children) {
+  return React.createElement(
+    context.Provider,
+    { value },
+    ...children.toArray(),
+  );
 }
 
-export function set_prop_int(props, key, value) {
-  return { ...props, [key]: value };
+// === 컴포넌트 정의 ===
+
+export function define_component(name, render) {
+  const Component = (props) => render(props);
+  Component.displayName = name;
+  return Component;
 }
 
-export function set_prop_float(props, key, value) {
-  return { ...props, [key]: value };
-}
-
-export function set_prop_bool(props, key, value) {
-  return { ...props, [key]: value };
-}
-
-export function set_prop_handler(props, key, handler) {
-  return { ...props, [key]: handler };
-}
-
-export function set_prop_any(props, key, value) {
-  return { ...props, [key]: value };
-}
-
-export function set_class_name(props, class_name) {
-  return { ...props, className: class_name };
-}
-
-export function set_class_names(props, class_names) {
-  return { ...props, className: class_names.toArray().join(" ") };
-}
-
-export function set_key(props, key) {
-  return { ...props, key };
-}
-
-export function set_ref(props, ref) {
-  return { ...props, ref };
-}
-
-export function set_style(props, style_obj) {
-  return { ...props, style: style_obj };
-}
-
-// === Style 빌더 ===
-
-export function empty_style() {
-  return {};
-}
-
-export function set_style_prop(style, key, value) {
-  return { ...style, [key]: value };
-}
-
-// === Props 읽기 (Mendix props에서 값 추출) ===
-
-export function get_string_prop(props, key) {
-  const value = props[key];
-  return value !== undefined && value !== null ? String(value) : "";
-}
-
-export function get_prop(props, key) {
-  return props[key];
-}
-
-export function has_prop(props, key) {
-  return key in props && props[key] !== undefined && props[key] !== null;
-}
-
-// === React Hooks ===
-
-export function use_state(initial) {
-  return React.useState(initial);
-}
-
-export function use_effect(effect_fn, deps) {
-  React.useEffect(effect_fn, deps.toArray());
-}
-
-export function use_effect_always(effect_fn) {
-  React.useEffect(effect_fn);
-}
-
-export function use_effect_once(effect_fn) {
-  React.useEffect(effect_fn, []);
-}
-
-export function use_memo(compute_fn, deps) {
-  return React.useMemo(compute_fn, deps.toArray());
-}
-
-export function use_callback(callback, deps) {
-  return React.useCallback(callback, deps.toArray());
-}
-
-export function use_ref(initial) {
-  return React.useRef(initial);
-}
-
-export function get_ref_current(ref) {
-  return ref.current;
-}
-
-export function set_ref_current(ref, value) {
-  ref.current = value;
-}
-
-// === 이벤트 ===
-
-export function get_target_value(event) {
-  return event.target.value ?? "";
-}
-
-export function prevent_default(event) {
-  event.preventDefault();
-}
-
-export function stop_propagation(event) {
-  event.stopPropagation();
-}
-
-export function get_event_key(event) {
-  return event.key;
+export function memo_component(comp) {
+  return React.memo(comp);
 }
 
 // === 유틸리티 ===
@@ -181,4 +88,46 @@ export function list_to_array(gleam_list) {
 
 export function array_to_list(js_array) {
   return toList(js_array);
+}
+
+// === 고급 컴포넌트 ===
+
+export function strict_mode(children) {
+  return React.createElement(React.StrictMode, null, ...children.toArray());
+}
+
+export function suspense(fallback, children) {
+  return React.createElement(
+    React.Suspense,
+    { fallback },
+    ...children.toArray(),
+  );
+}
+
+export function profiler(id, on_render, children) {
+  return React.createElement(
+    React.Profiler,
+    { id, onRender: on_render },
+    ...children.toArray(),
+  );
+}
+
+export function portal(element, container) {
+  return ReactDOM.createPortal(element, container);
+}
+
+export function forward_ref(render) {
+  return React.forwardRef(render);
+}
+
+export function memo_custom(comp, are_equal) {
+  return React.memo(comp, are_equal);
+}
+
+export function start_transition(callback) {
+  React.startTransition(callback);
+}
+
+export function flush_sync(callback) {
+  ReactDOM.flushSync(callback);
 }

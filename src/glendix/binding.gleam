@@ -3,13 +3,28 @@
 //// bindings.json에 등록된 라이브러리의 컴포넌트를 가져온다.
 //// gleam run -m glendix/install 실행 시 바인딩이 자동 생성된다.
 ////
-//// 사용 예:
+//// html.gleam과 동일한 호출 패턴으로 래퍼를 작성하면 일관된 API를 제공할 수 있다:
 //// ```gleam
 //// import glendix/binding
-//// import glendix/react.{type Component}
+//// import glendix/react.{type ReactElement}
+//// import glendix/react/attribute.{type Attribute}
 ////
 //// fn m() { binding.module("recharts") }
-//// pub fn pie_chart() -> Component { binding.resolve(m(), "PieChart") }
+////
+//// // attrs + children 컴포넌트
+//// pub fn pie_chart(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+////   react.component_el(binding.resolve(m(), "PieChart"), attrs, children)
+//// }
+////
+//// // children만 받는 컴포넌트
+//// pub fn pie_chart_(children: List(ReactElement)) -> ReactElement {
+////   react.component_el_(binding.resolve(m(), "PieChart"), children)
+//// }
+////
+//// // children 없는 컴포넌트 (Cell, Tooltip 등)
+//// pub fn cell(attrs: List(Attribute)) -> ReactElement {
+////   react.void_component_el(binding.resolve(m(), "Cell"), attrs)
+//// }
 //// ```
 
 import glendix/react.{type Component}

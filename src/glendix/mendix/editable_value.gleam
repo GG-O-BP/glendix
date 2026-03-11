@@ -37,7 +37,7 @@ pub fn display_value(ev: EditableValue) -> String
 
 /// 값 포매터
 @external(javascript, "../mendix_ffi.mjs", "get_editable_formatter")
-pub fn get_formatter(ev: EditableValue) -> ValueFormatter
+pub fn formatter(ev: EditableValue) -> ValueFormatter
 
 /// 가능한 값 목록 (열거형 속성 등)
 @external(javascript, "../mendix_ffi.mjs", "get_editable_universe")

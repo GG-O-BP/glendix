@@ -27,8 +27,10 @@ Gleam 문법과 언어 기능은 `./docs/gleam_language_tour.md`를 참조한다
 
 ### 코드 작성 규칙
 
-- **파이프라인 API**: Props는 `prop.new() |> prop.class("x") |> prop.on_click(handler)` 패턴
+- **Attribute 리스트 API**: HTML 속성은 `[attribute.class("x"), event.on_click(handler)]` 패턴. `attribute.none()`으로 조건부 속성 처리. 여러 `attribute.class()` 호출 시 자동 병합.
 - **조건부 렌더링**: `react.when(bool, fn)`, `react.when_some(option, fn)` — if/else 대신 사용
+- **Context API**: `react.create_context(default)` → `react.provider(ctx, value, children)` → `hook.use_context(ctx)`
+- **컴포넌트 정의**: `react.define_component("Name", render_fn)` → DevTools 이름 표시. `react.memo(comp)` → 리렌더 방지.
 - **`@external` 어노테이션**: FFI 함수 선언 시 상대 경로로 `.mjs` 파일 참조
 - **한국어 주석**: 주석과 doc comment는 한국어로 작성
 - **모듈별 단일 책임**: 각 `.gleam` 파일은 하나의 Mendix/React 타입을 담당
@@ -42,17 +44,24 @@ Gleam 문법과 언어 기능은 `./docs/gleam_language_tour.md`를 참조한다
 
 ```
 src/glendix/
-├── react.gleam              # 핵심 타입 + el, fragment, text, none, when, when_some
-├── react_ffi.mjs            # React 원시 함수 어댑터
+├── react.gleam              # 핵심 타입 + element, element_, void_element, component_el, component_el_, void_component_el, fragment, text, none, when, when_some, Context, define_component, memo, StrictMode, Suspense, Profiler, portal, forwardRef, memo_, startTransition, flushSync
+├── react_ffi.mjs            # React/ReactDOM 요소 생성, Fragment, Context, 컴포넌트 정의, Props 읽기, 고급 컴포넌트 어댑터
 ├── react/
-│   ├── prop.gleam            # Props 파이프라인 빌더
-│   ├── hook.gleam            # useState, useEffect, useMemo, useCallback, useRef
-│   ├── event.gleam           # 이벤트 타입 + target_value, prevent_default, key
-│   └── html.gleam            # HTML 태그 편의 함수 (순수 Gleam, FFI 없음)
+│   ├── attribute.gleam       # Attribute 타입 + 90+ HTML 속성 함수 (class, id, style, dangerouslySetInnerHTML, inputMode, inert, popover, fetchPriority 등)
+│   ├── attribute_ffi.mjs     # Attribute → React props 변환 (className 자동 병합, style camelCase, dangerouslySetInnerHTML)
+│   ├── hook.gleam            # useState, useEffect, useLayoutEffect, useInsertionEffect, useMemo, useCallback, useRef, useReducer, useContext, useId, useTransition, useDeferredValue, useOptimistic, useOptimistic_, useImperativeHandle, useLazyState, useSyncExternalStore, useDebugValue
+│   ├── hook_ffi.mjs          # React Hooks FFI 어댑터
+│   ├── event.gleam           # 15개 이벤트 타입 + 148+ 핸들러 Attribute (캡처 단계 포함, 컴포지션/미디어/UI/로드/에러 이벤트) + 67+ 접근자
+│   ├── event_ffi.mjs         # React 이벤트 접근자 FFI 어댑터
+│   ├── html.gleam            # 75+ HTML 태그 편의 함수 (순수 Gleam, FFI 없음)
+│   ├── svg.gleam             # 57 SVG 요소 편의 함수 (순수 Gleam, FFI 없음)
+│   └── svg_attribute.gleam   # 97+ SVG 전용 속성 함수 (순수 Gleam, FFI 없음)
 ├── binding.gleam              # 외부 React 컴포넌트 바인딩 (JsModule, module, resolve)
 ├── binding_ffi.mjs            # 바인딩 FFI 스텁 (install 시 자동 교체)
-├── cmd.gleam                 # 셸 명령어 실행 + PM 감지 + 브릿지/바인딩 자동 생성 (exec, detect_runner, run_tool, run_tool_with_bridge, generate_bindings)
-├── cmd_ffi.mjs               # Node.js child_process + fs FFI 어댑터 (exec, file_exists, run_with_bridge, generate_bindings)
+├── widget.gleam               # .mpk 위젯 컴포넌트 바인딩 (component)
+├── widget_ffi.mjs             # 위젯 바인딩 FFI 스텁 (install 시 자동 교체)
+├── cmd.gleam                 # 셸 명령어 실행 + PM 감지 + 브릿지/바인딩 자동 생성 (exec, detect_runner, run_tool, run_tool_with_bridge, generate_bindings, generate_widget_bindings)
+├── cmd_ffi.mjs               # Node.js child_process + fs + ZIP 파싱 FFI 어댑터 (exec, file_exists, run_with_bridge, generate_bindings, generate_widget_bindings, 위젯 속성 XML 주입)
 ├── build.gleam               # gleam run -m glendix/build (프로덕션 빌드)
 ├── dev.gleam                 # gleam run -m glendix/dev (개발 서버)
 ├── start.gleam               # gleam run -m glendix/start (Mendix 연동)
@@ -69,7 +78,8 @@ src/glendix/
     ├── list_value.gleam      # ListValue + SortInstruction + FilterCondition
     ├── list_attribute.gleam   # 리스트 아이템별 속성/액션/위젯 접근
     ├── selection.gleam        # 단일/다중 선택
-    ├── reference.gleam        # 연관 참조 (단일/다중)
+    ├── reference.gleam        # 단일 연관 참조 (ReferenceValue)
+    ├── reference_set.gleam    # 다중 연관 참조 (ReferenceSetValue)
     ├── date.gleam             # JS Date 래퍼 (월 1-based)
     ├── big.gleam              # Big.js 래퍼 (compare → gleam/order)
     ├── file.gleam             # FileValue, WebImage
@@ -116,16 +126,24 @@ PM 감지 메커니즘:
 
 키는 npm 패키지명, `components`는 named export할 React 컴포넌트 목록이다.
 
-### 사용자 코드 (순수 Gleam)
+### 사용자 코드 (순수 Gleam — html.gleam과 동일한 호출 패턴)
 
 ```gleam
 import glendix/binding
-import glendix/react.{type Component}
+import glendix/react.{type ReactElement}
+import glendix/react/attribute.{type Attribute}
 
 fn m() { binding.module("recharts") }
 
-pub fn pie_chart() -> Component { binding.resolve(m(), "PieChart") }
-pub fn tooltip() -> Component   { binding.resolve(m(), "Tooltip") }
+// attrs + children (html.div 패턴)
+pub fn pie_chart(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.component_el(binding.resolve(m(), "PieChart"), attrs, children)
+}
+
+// children 없는 컴포넌트 (html.input 패턴)
+pub fn tooltip(attrs: List(Attribute)) -> ReactElement {
+  react.void_component_el(binding.resolve(m(), "Tooltip"), attrs)
+}
 ```
 
 ### 생성되는 binding_ffi.mjs (자동)
@@ -143,6 +161,41 @@ export function resolve(mod, name) { return mod[name]; }
 ```
 
 named import를 사용하므로 Rollup tree-shaking이 가능하다.
+
+## .mpk 위젯 바인딩
+
+`glendix/widget` 모듈로 `widgets/` 디렉토리의 `.mpk` 파일(Mendix 위젯 빌드 결과물)을 React 컴포넌트로 사용할 수 있다.
+
+### 동작 원리
+
+1. `widgets/` 디렉토리에 `.mpk` 파일을 배치한다
+2. `gleam run -m glendix/install` 실행 시:
+   - `.mpk`에서 `.mjs`/`.css`를 추출하고 `widget_ffi.mjs`를 생성한다
+   - `.mpk` XML의 `<property>` 정의를 부모 위젯 XML(`src/{WidgetName}.xml`)에 `<propertyGroup caption="{위젯명}">` 으로 자동 주입한다
+   - 동일 caption의 `<propertyGroup>`이 이미 있으면 주입을 건너뛴다
+3. 생성된 파일은 glendix 빌드 경로에 배치된다
+4. `run_with_bridge` (build/dev/start) 실행 시에도 자동 갱신된다
+
+### 사용자 코드
+
+```gleam
+import glendix/mendix
+import glendix/widget
+import glendix/react
+import glendix/react/attribute
+
+// props에서 자동 주입된 속성을 읽어 위젯에 전달
+let boolean_attr = mendix.get_prop_required(props, "booleanAttribute")
+let action = mendix.get_prop_required(props, "action")
+
+let switch_comp = widget.component("Switch")
+react.component_el(switch_comp, [
+  attribute.attribute("booleanAttribute", boolean_attr),
+  attribute.attribute("action", action),
+], [])
+```
+
+위젯 Props는 기존 `attribute.attribute(key, value)` 범용 함수로 전달한다. 위젯 이름은 `.mpk` 내부 XML의 `<name>` 태그 값(PascalCase)을 그대로 사용한다. property key는 `.mpk` XML의 원본 key를 그대로 사용한다.
 
 ## 새 모듈 추가 시 패턴
 
@@ -207,7 +260,10 @@ Mendix 공식 문서(docs.mendix.com)는 접근 불가하므로 GitHub raw 소�
 - Gleam에서 JS `undefined`를 직접 다루지 않는다 — 반드시 `Option`으로 변환
 - `html.gleam`은 순수 Gleam이다 — FFI 함수를 추가하지 않는다
 - `date.gleam`의 month를 JS 0-based로 전달하지 않는다 — FFI가 자동 변환함
-- `prop.class()`를 쓰고 `prop.string("className", ...)`도 쓰면 충돌한다
 - `react.none()` 대신 빈 문자열이나 빈 리스트로 "아무것도 안 보여주기"를 하지 않는다
+- `attribute.class()`를 여러 번 호출해도 괜찮다 — 자동으로 공백 구분 병합된다
+- 조건부 속성에는 `attribute.none()`을 사용한다 — 렌더링 시 무시된다
 - 외부 React 컴포넌트를 사용할 때 수동으로 `.mjs` FFI를 작성하지 않는다 — `bindings.json` + `glendix/binding`을 사용한다
 - `binding.resolve()`의 컴포넌트 이름은 JS 원본 이름(PascalCase)을 그대로 사용한다 — snake_case로 변환하지 않는다
+- `.mpk` 위젯을 사용할 때 수동으로 `.mjs` FFI를 작성하지 않는다 — `widgets/` 디렉토리 + `glendix/widget`을 사용한다
+- `widget.component()`의 위젯 이름은 `.mpk` XML의 `<name>` 값(PascalCase)을 그대로 사용한다
