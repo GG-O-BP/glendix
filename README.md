@@ -167,9 +167,15 @@ react.when_some(maybe_user, fn(user) {
 }
 ```
 
-**2. `gleam run -m glendix/install` 실행** (바인딩 자동 생성)
+**2. 패키지 설치** — `bindings.json`에 등록한 패키지는 `node_modules`에 설치되어 있어야 합니다:
 
-**3. 순수 Gleam으로 사용:**
+```bash
+npm install recharts
+```
+
+**3. `gleam run -m glendix/install` 실행** (바인딩 자동 생성)
+
+**4. 순수 Gleam으로 사용:**
 
 ```gleam
 import glendix/binding

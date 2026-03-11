@@ -96,9 +96,10 @@ PM 감지 메커니즘:
 ### 동작 원리
 
 1. 사용자가 프로젝트 루트에 `bindings.json`을 작성한다
-2. `gleam run -m glendix/install` 실행 시 `binding_ffi.mjs`가 자동 생성된다
-3. 생성된 파일은 glendix 빌드 경로(`build/packages/glendix/src/glendix/`, `build/dev/javascript/glendix/glendix/`)에 직접 배치된다
-4. `run_with_bridge` (build/dev/start) 실행 시에도 자동 갱신된다
+2. `bindings.json`에 등록한 패키지를 `npm install`/`pnpm add`/`yarn add`/`bun add`로 설치한다 (생성된 `binding_ffi.mjs`가 해당 패키지를 직접 import하므로 `node_modules`에 존재해야 Rollup이 번들링할 수 있다)
+3. `gleam run -m glendix/install` 실행 시 `binding_ffi.mjs`가 자동 생성된다
+4. 생성된 파일은 glendix 빌드 경로(`build/packages/glendix/src/glendix/`, `build/dev/javascript/glendix/glendix/`)에 직접 배치된다
+5. `run_with_bridge` (build/dev/start) 실행 시에도 자동 갱신된다
 
 ### bindings.json 형식
 
