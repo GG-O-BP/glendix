@@ -20,6 +20,9 @@ pub type Ref(a)
 /// React Context 타입
 pub type Context(a)
 
+/// JS Promise 타입 (React.use()와 함께 사용)
+pub type Promise(a)
+
 // === 요소 생성 (Attribute 리스트 기반) ===
 
 /// 속성 리스트 기반 HTML 요소 생성
@@ -66,6 +69,18 @@ pub fn fragment(children: List(ReactElement)) -> ReactElement
 /// key가 있는 Fragment
 @external(javascript, "./react_ffi.mjs", "keyed_fragment")
 pub fn keyed_fragment(key: String, children: List(ReactElement)) -> ReactElement
+
+/// 임의 부모 요소에 keyed children 전달
+/// parent 함수에 key가 적용된 자식 리스트를 전달한다
+pub fn keyed(
+  parent: fn(List(ReactElement)) -> ReactElement,
+  content: List(#(String, ReactElement)),
+) -> ReactElement {
+  parent(apply_keys(content))
+}
+
+@external(javascript, "./react_ffi.mjs", "apply_keys")
+fn apply_keys(content: List(#(String, ReactElement))) -> List(ReactElement)
 
 /// null 렌더링 (아무것도 표시하지 않음)
 @external(javascript, "./react_ffi.mjs", "null_element")

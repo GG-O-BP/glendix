@@ -44,13 +44,14 @@ Gleam 문법과 언어 기능은 `./docs/gleam_language_tour.md`를 참조한다
 
 ```
 src/glendix/
-├── react.gleam              # 핵심 타입 + element, element_, void_element, component_el, component_el_, void_component_el, fragment, text, none, when, when_some, Context, define_component, memo, StrictMode, Suspense, Profiler, portal, forwardRef, memo_, startTransition, flushSync
-├── react_ffi.mjs            # React/ReactDOM 요소 생성, Fragment, Context, 컴포넌트 정의, Props 읽기, 고급 컴포넌트 어댑터
+├── react.gleam              # 핵심 타입 + element, element_, void_element, component_el, component_el_, void_component_el, fragment, keyed, text, none, when, when_some, Context, Promise, define_component, memo, StrictMode, Suspense, Profiler, portal, forwardRef, memo_, startTransition, flushSync
+├── react_ffi.mjs            # React/ReactDOM 요소 생성, Fragment, Context, 컴포넌트 정의, Props 읽기, 고급 컴포넌트 어댑터, Gleam 구조 동등성 memo
 ├── react/
 │   ├── attribute.gleam       # Attribute 타입 + 90+ HTML 속성 함수 (class, id, style, dangerouslySetInnerHTML, inputMode, inert, popover, fetchPriority 등)
 │   ├── attribute_ffi.mjs     # Attribute → React props 변환 (className 자동 병합, style camelCase, dangerouslySetInnerHTML)
-│   ├── hook.gleam            # useState, useEffect, useLayoutEffect, useInsertionEffect, useMemo, useCallback, useRef, useReducer, useContext, useId, useTransition, useDeferredValue, useOptimistic, useOptimistic_, useImperativeHandle, useLazyState, useSyncExternalStore, useDebugValue
+│   ├── hook.gleam            # useState, useEffect, useLayoutEffect, useInsertionEffect, useMemo, useCallback, useRef, useReducer, useContext, useId, useTransition, useDeferredValue, useOptimistic, useOptimistic_, useImperativeHandle, useLazyState, useSyncExternalStore, useDebugValue, use_promise (React.use)
 │   ├── hook_ffi.mjs          # React Hooks FFI 어댑터
+│   ├── ref.gleam             # Ref 접근자 (current, assign) — hook에서 분리
 │   ├── event.gleam           # 15개 이벤트 타입 + 148+ 핸들러 Attribute (캡처 단계 포함, 컴포지션/미디어/UI/로드/에러 이벤트) + 67+ 접근자
 │   ├── event_ffi.mjs         # React 이벤트 접근자 FFI 어댑터
 │   ├── html.gleam            # 75+ HTML 태그 편의 함수 (순수 Gleam, FFI 없음)

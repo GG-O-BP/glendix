@@ -1,6 +1,6 @@
 // React Hooks - useState, useEffect 등
 
-import glendix/react.{type Context, type Ref}
+import glendix/react.{type Context, type Promise, type Ref}
 
 // === useState ===
 
@@ -123,10 +123,12 @@ pub fn use_callback(callback: fn(a) -> b, deps: List(c)) -> fn(a) -> b
 pub fn use_ref(initial: a) -> Ref(a)
 
 /// ref 현재 값 읽기
+/// @deprecated — `glendix/react/ref.current` 사용 권장
 @external(javascript, "./hook_ffi.mjs", "get_ref_current")
 pub fn get_ref(ref: Ref(a)) -> a
 
 /// ref 현재 값 설정
+/// @deprecated — `glendix/react/ref.assign` 사용 권장
 @external(javascript, "./hook_ffi.mjs", "set_ref_current")
 pub fn set_ref(ref: Ref(a), value: a) -> Nil
 
@@ -211,3 +213,10 @@ pub fn use_debug_value(value: a) -> Nil
 /// 커스텀 훅 디버그 값 + 포맷 함수
 @external(javascript, "./hook_ffi.mjs", "use_debug_value_format")
 pub fn use_debug_value_(value: a, format: fn(a) -> String) -> Nil
+
+// === React.use (React 19) ===
+
+/// Suspense 경계 내에서 Promise를 소비하여 값을 반환
+/// Promise가 미완료 시 React가 Suspense 폴백을 표시한다
+@external(javascript, "./hook_ffi.mjs", "use_promise")
+pub fn use_promise(promise: Promise(a)) -> a

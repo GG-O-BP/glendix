@@ -1,8 +1,19 @@
 // React FFI 어댑터 - 요소 생성, Fragment, Context, 컴포넌트 정의, Props 읽기
 import * as React from "react";
 import * as ReactDOM from "react-dom";
-import { toList } from "../gleam.mjs";
+import { toList, isEqual } from "../gleam.mjs";
 import { to_props } from "./react/attribute_ffi.mjs";
+
+// Gleam 구조 동등성 기반 얕은 비교 (React.memo용)
+function gleam_shallow_equal(prev, next) {
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return false;
+  for (const key of prevKeys) {
+    if (!isEqual(prev[key], next[key])) return false;
+  }
+  return true;
+}
 
 // === 요소 생성 (Attribute 리스트 기반) ===
 
@@ -46,6 +57,16 @@ export function keyed_fragment(key, children) {
   return React.createElement(React.Fragment, { key }, ...children.toArray());
 }
 
+export function apply_keys(content) {
+  const keyed = content.toArray().map((pair) => {
+    const key = pair[0];
+    const element = pair[1];
+    if (element === null || typeof element !== "object") return element;
+    return React.cloneElement(element, { key });
+  });
+  return toList(keyed);
+}
+
 export function null_element() {
   return null;
 }
@@ -77,7 +98,7 @@ export function define_component(name, render) {
 }
 
 export function memo_component(comp) {
-  return React.memo(comp);
+  return React.memo(comp, gleam_shallow_equal);
 }
 
 // === 유틸리티 ===

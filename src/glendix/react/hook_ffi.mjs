@@ -152,3 +152,9 @@ export function use_debug_value_format(value, format) {
 export function use_optimistic_with_update(state, update_fn) {
   return React.useOptimistic(state, update_fn);
 }
+
+// === React.use (React 19) ===
+
+export function use_promise(promise) {
+  return React.use(promise);
+}
