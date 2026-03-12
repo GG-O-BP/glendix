@@ -83,6 +83,11 @@ pub fn on_mouse_out(handler: fn(MouseEvent) -> Nil) -> Attribute {
   attribute.attribute("onMouseOut", handler)
 }
 
+// 보조 버튼 클릭 (가운데 버튼 등)
+pub fn on_aux_click(handler: fn(MouseEvent) -> Nil) -> Attribute {
+  attribute.attribute("onAuxClick", handler)
+}
+
 // 키보드 이벤트
 pub fn on_key_down(handler: fn(KeyboardEvent) -> Nil) -> Attribute {
   attribute.attribute("onKeyDown", handler)
@@ -277,6 +282,10 @@ pub fn on_mouse_over_capture(handler: fn(MouseEvent) -> Nil) -> Attribute {
 
 pub fn on_mouse_out_capture(handler: fn(MouseEvent) -> Nil) -> Attribute {
   attribute.attribute("onMouseOutCapture", handler)
+}
+
+pub fn on_aux_click_capture(handler: fn(MouseEvent) -> Nil) -> Attribute {
+  attribute.attribute("onAuxClickCapture", handler)
 }
 
 // 키보드 캡처
@@ -672,6 +681,11 @@ pub fn on_emptied(handler: fn(Event) -> Nil) -> Attribute {
   attribute.attribute("onEmptied", handler)
 }
 
+/// 미디어 암호화 이벤트 (DRM 콘텐츠)
+pub fn on_encrypted(handler: fn(Event) -> Nil) -> Attribute {
+  attribute.attribute("onEncrypted", handler)
+}
+
 // 미디어 이벤트 캡처
 pub fn on_play_capture(handler: fn(Event) -> Nil) -> Attribute {
   attribute.attribute("onPlayCapture", handler)
@@ -751,6 +765,10 @@ pub fn on_abort_capture(handler: fn(Event) -> Nil) -> Attribute {
 
 pub fn on_emptied_capture(handler: fn(Event) -> Nil) -> Attribute {
   attribute.attribute("onEmptiedCapture", handler)
+}
+
+pub fn on_encrypted_capture(handler: fn(Event) -> Nil) -> Attribute {
+  attribute.attribute("onEncryptedCapture", handler)
 }
 
 // === UI 이벤트 ===

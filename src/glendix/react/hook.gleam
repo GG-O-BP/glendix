@@ -1,5 +1,6 @@
 // React Hooks - useState, useEffect 등
 
+import gleam/option.{type Option, None}
 import glendix/react.{type Context, type Promise, type Ref}
 
 // === useState ===
@@ -122,6 +123,11 @@ pub fn use_callback(callback: fn(a) -> b, deps: List(c)) -> fn(a) -> b
 @external(javascript, "./hook_ffi.mjs", "use_ref")
 pub fn use_ref(initial: a) -> Ref(a)
 
+/// 초기값 없는 ref 생성 (None으로 초기화)
+pub fn use_ref_() -> Ref(Option(a)) {
+  use_ref(None)
+}
+
 /// ref 현재 값 읽기
 /// @deprecated — `glendix/react/ref.current` 사용 권장
 @external(javascript, "./hook_ffi.mjs", "get_ref_current")
@@ -139,6 +145,14 @@ pub fn set_ref(ref: Ref(a), value: a) -> Nil
 pub fn use_reducer(
   reducer: fn(state, action) -> state,
   initial: state,
+) -> #(state, fn(action) -> Nil)
+
+/// 리듀서 기반 상태 관리 (지연 초기화 — init(initial_arg)로 초기 상태 생성)
+@external(javascript, "./hook_ffi.mjs", "use_reducer_lazy")
+pub fn use_reducer_(
+  reducer: fn(state, action) -> state,
+  initial_arg: a,
+  init: fn(a) -> state,
 ) -> #(state, fn(action) -> Nil)
 
 // === useContext ===
@@ -174,6 +188,16 @@ pub fn use_optimistic(state: a) -> #(a, fn(a) -> Nil)
 /// 낙관적 UI 업데이트 (리듀서 변형 — 업데이트 함수로 병합 로직 지정)
 @external(javascript, "./hook_ffi.mjs", "use_optimistic_with_update")
 pub fn use_optimistic_(state: a, update_fn: fn(a, b) -> a) -> #(a, fn(b) -> Nil)
+
+// === useActionState (React 19) ===
+
+/// 폼 액션 기반 상태 관리 (React 19)
+/// action(현재상태, 페이로드) -> 새상태, 반환: #(상태, 폼액션, isPending)
+@external(javascript, "./hook_ffi.mjs", "use_action_state")
+pub fn use_action_state(
+  action: fn(state, payload) -> state,
+  initial_state: state,
+) -> #(state, fn(payload) -> Nil, Bool)
 
 // === useImperativeHandle ===
 

@@ -153,6 +153,18 @@ export function use_optimistic_with_update(state, update_fn) {
   return React.useOptimistic(state, update_fn);
 }
 
+// === useActionState (React 19) ===
+
+export function use_action_state(action, initial_state) {
+  return React.useActionState(action, initial_state);
+}
+
+// === useReducer (지연 초기화) ===
+
+export function use_reducer_lazy(reducer, initial_arg, init) {
+  return React.useReducer(reducer, initial_arg, init);
+}
+
 // === React.use (React 19) ===
 
 export function use_promise(promise) {

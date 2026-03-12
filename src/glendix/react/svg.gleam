@@ -351,3 +351,24 @@ pub fn switch_(
 ) -> ReactElement {
   react.element("switch", attrs, children)
 }
+
+/// SVG animateMotion (모션 경로 애니메이션)
+pub fn animate_motion(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("animateMotion", attrs, children)
+}
+
+/// SVG metadata (메타데이터)
+pub fn metadata(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("metadata", attrs, children)
+}
+
+/// SVG view (뷰 정의)
+pub fn view(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("view", attrs)
+}

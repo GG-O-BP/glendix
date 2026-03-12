@@ -620,3 +620,55 @@ pub fn embed(attrs: List(Attribute)) -> ReactElement {
 pub fn area(attrs: List(Attribute)) -> ReactElement {
   react.void_element("area", attrs)
 }
+
+// === Tier 4: 추가 인라인/구조 요소 ===
+
+/// 볼드 텍스트
+pub fn b(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("b", attrs, children)
+}
+
+/// 이탤릭 텍스트
+pub fn i(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("i", attrs, children)
+}
+
+/// 취소선 텍스트
+pub fn s(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("s", attrs, children)
+}
+
+/// 밑줄 텍스트
+pub fn u(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("u", attrs, children)
+}
+
+/// 짧은 인용문
+pub fn q(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("q", attrs, children)
+}
+
+/// 정의 용어
+pub fn dfn(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("dfn", attrs, children)
+}
+
+/// 스크립트 미지원 시 대체 콘텐츠
+pub fn noscript(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("noscript", attrs, children)
+}
+
+/// HTML 템플릿
+pub fn template(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("template", attrs, children)
+}
+
+/// 웹 컴포넌트 슬롯
+pub fn slot(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("slot", attrs, children)
+}
+
+/// 메뉴 요소
+pub fn menu(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("menu", attrs, children)
+}
