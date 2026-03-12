@@ -249,6 +249,18 @@ pub fn on_transition_end(handler: fn(TransitionEvent) -> Nil) -> Attribute {
   attribute.attribute("onTransitionEnd", handler)
 }
 
+pub fn on_transition_run(handler: fn(TransitionEvent) -> Nil) -> Attribute {
+  attribute.attribute("onTransitionRun", handler)
+}
+
+pub fn on_transition_start(handler: fn(TransitionEvent) -> Nil) -> Attribute {
+  attribute.attribute("onTransitionStart", handler)
+}
+
+pub fn on_transition_cancel(handler: fn(TransitionEvent) -> Nil) -> Attribute {
+  attribute.attribute("onTransitionCancel", handler)
+}
+
 // === 캡처 단계 이벤트 핸들러 ===
 
 // 마우스 캡처
@@ -453,6 +465,24 @@ pub fn on_transition_end_capture(
   handler: fn(TransitionEvent) -> Nil,
 ) -> Attribute {
   attribute.attribute("onTransitionEndCapture", handler)
+}
+
+pub fn on_transition_run_capture(
+  handler: fn(TransitionEvent) -> Nil,
+) -> Attribute {
+  attribute.attribute("onTransitionRunCapture", handler)
+}
+
+pub fn on_transition_start_capture(
+  handler: fn(TransitionEvent) -> Nil,
+) -> Attribute {
+  attribute.attribute("onTransitionStartCapture", handler)
+}
+
+pub fn on_transition_cancel_capture(
+  handler: fn(TransitionEvent) -> Nil,
+) -> Attribute {
+  attribute.attribute("onTransitionCancelCapture", handler)
 }
 
 // === 이벤트 값 추출 (공통) ===

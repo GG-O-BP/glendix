@@ -266,8 +266,8 @@ pub fn img(attrs: List(Attribute)) -> ReactElement {
   react.void_element("img", attrs)
 }
 
-pub fn br() -> ReactElement {
-  react.void_element("br", [])
+pub fn br(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("br", attrs)
 }
 
 pub fn hr(attrs: List(Attribute)) -> ReactElement {
@@ -311,8 +311,11 @@ pub fn dialog(
   react.element("dialog", attrs, children)
 }
 
-pub fn progress(attrs: List(Attribute)) -> ReactElement {
-  react.void_element("progress", attrs)
+pub fn progress(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("progress", attrs, children)
 }
 
 pub fn meter(
@@ -607,8 +610,8 @@ pub fn map_(
 }
 
 /// 줄바꿈 기회 (Void 요소)
-pub fn wbr() -> ReactElement {
-  react.void_element("wbr", [])
+pub fn wbr(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("wbr", attrs)
 }
 
 /// 외부 리소스 삽입 (Void 요소)
@@ -671,4 +674,68 @@ pub fn slot(attrs: List(Attribute), children: List(ReactElement)) -> ReactElemen
 /// 메뉴 요소
 pub fn menu(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
   react.element("menu", attrs, children)
+}
+
+// === 문서 구조 / 메타데이터 ===
+
+/// HTML 루트 요소
+pub fn html(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("html", attrs, children)
+}
+
+/// 문서 헤드
+pub fn head(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("head", attrs, children)
+}
+
+/// 문서 본문
+pub fn body(attrs: List(Attribute), children: List(ReactElement)) -> ReactElement {
+  react.element("body", attrs, children)
+}
+
+/// 기본 URL (Void 요소)
+pub fn base(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("base", attrs)
+}
+
+/// 리소스 링크 (Void 요소)
+pub fn link(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("link", attrs)
+}
+
+/// 메타데이터 (Void 요소)
+pub fn meta(attrs: List(Attribute)) -> ReactElement {
+  react.void_element("meta", attrs)
+}
+
+/// 스크립트
+pub fn script(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("script", attrs, children)
+}
+
+/// 인라인 스타일 시트 (attribute.style 충돌 회피)
+pub fn style_el(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("style", attrs, children)
+}
+
+/// 문서 제목 (svg.title 충돌 회피)
+pub fn title_el(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("title", attrs, children)
+}
+
+/// 외부 오브젝트 삽입
+pub fn object(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("object", attrs, children)
 }

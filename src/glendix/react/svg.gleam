@@ -372,3 +372,11 @@ pub fn metadata(
 pub fn view(attrs: List(Attribute)) -> ReactElement {
   react.void_element("view", attrs)
 }
+
+/// SVG discard (조건부 요소 제거)
+pub fn discard(
+  attrs: List(Attribute),
+  children: List(ReactElement),
+) -> ReactElement {
+  react.element("discard", attrs, children)
+}

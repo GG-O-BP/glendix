@@ -473,3 +473,95 @@ pub fn capture_(value: String) -> Attribute {
 pub fn nonce(value: String) -> Attribute {
   attribute("nonce", value)
 }
+
+// === 추가 HTML 속성 (Round 4) ===
+
+/// <meta> content 속성
+pub fn content(value: String) -> Attribute {
+  attribute("content", value)
+}
+
+/// 키보드 단축키
+pub fn access_key(value: String) -> Attribute {
+  attribute("accessKey", value)
+}
+
+/// className 별칭 (class와 동일)
+pub fn class_name(value: String) -> Attribute {
+  attribute("className", value)
+}
+
+/// htmlFor 별칭 (for와 동일)
+pub fn html_for(value: String) -> Attribute {
+  attribute("htmlFor", value)
+}
+
+/// 텍스트 방향성 제출 이름
+pub fn dirname(value: String) -> Attribute {
+  attribute("dirName", value)
+}
+
+/// 성능 타이밍 측정 식별자
+pub fn element_timing(value: String) -> Attribute {
+  attribute("elementTiming", value)
+}
+
+/// Shadow DOM 파트 내보내기
+pub fn export_parts(value: String) -> Attribute {
+  attribute("exportParts", value)
+}
+
+/// 커스텀 요소 사양
+pub fn is(value: String) -> Attribute {
+  attribute("is", value)
+}
+
+/// 마이크로데이터 항목 ID
+pub fn item_id(value: String) -> Attribute {
+  attribute("itemId", value)
+}
+
+/// 마이크로데이터 속성명
+pub fn item_prop(value: String) -> Attribute {
+  attribute("itemProp", value)
+}
+
+/// 마이크로데이터 참조 ID
+pub fn item_ref(value: String) -> Attribute {
+  attribute("itemRef", value)
+}
+
+/// 마이크로데이터 범위 설정
+pub fn item_scope(value: String) -> Attribute {
+  attribute("itemScope", value)
+}
+
+/// 마이크로데이터 타입 URL
+pub fn item_type(value: String) -> Attribute {
+  attribute("itemType", value)
+}
+
+/// 폼 문자 인코딩
+pub fn accept_charset(value: String) -> Attribute {
+  attribute("acceptCharset", value)
+}
+
+/// 버튼 폼 인코딩 타입
+pub fn form_enctype(value: String) -> Attribute {
+  attribute("formEnctype", value)
+}
+
+/// 버튼 폼 유효성 검증 비활성화
+pub fn form_no_validate(value: Bool) -> Attribute {
+  attribute("formNoValidate", value)
+}
+
+/// CSS Shadow Parts 노출
+pub fn part(value: String) -> Attribute {
+  attribute("part", value)
+}
+
+/// 웹 컴포넌트 슬롯 이름
+pub fn slot(value: String) -> Attribute {
+  attribute("slot", value)
+}
