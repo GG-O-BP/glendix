@@ -99,6 +99,7 @@ pub fn widget(props: JsProps) -> ReactElement {
 | `glendix/mendix/icon` | `WebIcon` — Glyph, Image, IconFont |
 | `glendix/mendix/formatter` | `ValueFormatter` — `format`, `parse` |
 | `glendix/mendix/filter` | FilterCondition 빌더 — `and_`, `or_`, `equals`, `contains`, `attribute`, `literal` |
+| `glendix/editor_config` | Editor Configuration 헬퍼 — 조건부 속성 숨기기, 탭 변환, 속성 순서 변경 (Jint 호환) |
 
 ## Examples
 
@@ -413,6 +414,8 @@ glendix/
     icon.gleam              ← Icon
     formatter.gleam         ← ValueFormatter
     filter.gleam            ← FilterCondition 빌더
+  editor_config.gleam       ← Editor Configuration 헬퍼 (Jint 호환, List 미사용)
+  editor_config_ffi.mjs     ← @mendix/pluggable-widgets-tools 래핑
   binding.gleam             ← 외부 React 컴포넌트 바인딩 API
   binding_ffi.mjs           ← 바인딩 FFI (install 시 자동 교체)
   widget.gleam              ← .mpk 위젯 컴포넌트 바인딩 API
