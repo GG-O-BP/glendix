@@ -818,9 +818,20 @@ export function generate_widget_bindings() {
         : `import "./widgets/${w.safeId}.css";`)
       .join("\n");
     const mjsImports = widgets
-      .map((w) => w.isMultiWidget
-        ? `import { ${w.safeId} } from "./widgets/${w.mjsZipPath}";`
-        : `import { ${w.safeId} } from "./widgets/${w.safeId}.mjs";`)
+      .map((w) => {
+        // .mjs 내용에서 named export 여부를 판별한다
+        // default export만 있으면 default import 사용
+        const src = w.mjsContent ? w.mjsContent.toString("utf8") : "";
+        const hasNamedExport = new RegExp(
+          `\\bexport\\s*\\{[^}]*\\b${w.safeId}\\b`,
+        ).test(src);
+        const path = w.isMultiWidget
+          ? `./widgets/${w.mjsZipPath}`
+          : `./widgets/${w.safeId}.mjs`;
+        return hasNamedExport
+          ? `import { ${w.safeId} } from "${path}";`
+          : `import ${w.safeId} from "${path}";`;
+      })
       .join("\n");
     const widgetEntries = widgets
       .map((w) => `  "${w.name}": ${w.safeId}`)
