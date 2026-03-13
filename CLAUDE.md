@@ -63,6 +63,8 @@ src/glendix/
 ├── widget_ffi.mjs             # Pluggable 위젯 바인딩 FFI 스텁 (install 시 자동 교체)
 ├── classic.gleam              # Classic (Dojo) 위젯 React 래퍼 (render, render_with_class)
 ├── classic_ffi.mjs            # Classic 위젯 바인딩 FFI 스텁 (install 시 자동 교체)
+├── editor_config.gleam       # Editor Configuration 헬퍼 (hidePropertyIn, transformGroupsIntoTabs 등)
+├── editor_config_ffi.mjs     # Editor Configuration FFI 어댑터 (@mendix/pluggable-widgets-tools 래핑)
 ├── cmd.gleam                 # 셸 명령어 실행 + PM 감지 + 브릿지/바인딩 자동 생성 (exec, detect_runner, run_tool, run_tool_with_bridge, generate_bindings, generate_widget_bindings)
 ├── cmd_ffi.mjs               # Node.js child_process + fs + ZIP 파싱 FFI 어댑터 (exec, file_exists, run_with_bridge, generate_bindings, generate_widget_bindings, 위젯 속성 XML 주입)
 ├── build.gleam               # gleam run -m glendix/build (프로덕션 빌드)
@@ -103,6 +105,60 @@ PM 감지 메커니즘:
 - 그 외 → npm (기본값)
 
 `run_tool(args)` 함수가 감지된 runner + `pluggable-widgets-tools` + args를 조합하여 실행한다. `run_tool_with_bridge(args)`는 `package.json`의 `widgetName`과 `gleam.toml`의 `name`을 읽어 브릿지 JS 파일(`src/{WidgetName}.js`, `src/{WidgetName}.editorConfig.js`, `src/{WidgetName}.editorPreview.js`)을 자동 생성하고, 명령 완료 후 삭제한다. editorConfig과 editorPreview 브릿지는 각각 `src/editor_config.gleam`, `src/editor_preview.gleam` 존재 시에만 생성된다. `run_with_bridge`는 브릿지 생성 전에 `generate_bindings()`를 호출하여 바인딩을 자동 갱신하고, `gleam build`를 실행하여 Gleam 빌드 출력(.mjs)이 최신 상태임을 보장한다. 7개 스크립트 모듈(`build`, `dev`, `start`, `install`, `release`, `lint`, `lint_fix`)은 각각 `pub fn main()`을 노출하여 `gleam run -m glendix/<name>`으로 실행한다.
+
+## Editor Configuration (editorConfig)
+
+`glendix/editor_config` 모듈로 Studio Pro의 editorConfig에서 조건부 속성 숨기기, 탭 변환 등을 순수 Gleam으로 작성할 수 있다. `@mendix/pluggable-widgets-tools`의 헬퍼 함수를 래핑한다.
+
+### Properties 타입
+
+`Properties`는 Studio Pro가 `getProperties`에 전달하는 `PropertyGroup[]` 배열의 opaque 래퍼이다. 모든 함수가 `Properties`를 반환하므로 파이프라인 체이닝이 가능하다.
+
+### 제공 함수
+
+| 함수 | 설명 |
+|------|------|
+| `hide_property(properties, key)` | 단일 속성 숨기기 |
+| `hide_properties(properties, keys)` | 여러 속성 한 번에 숨기기 |
+| `hide_nested_property(properties, key, index, nested_key)` | 중첩 속성 숨기기 (배열 타입 속성의 특정 인덱스 내부) |
+| `hide_nested_properties(properties, key, index, nested_keys)` | 여러 중첩 속성 한 번에 숨기기 |
+| `transform_groups_into_tabs(properties)` | 속성 그룹을 탭으로 변환 (웹 플랫폼용) |
+| `move_property(properties, from_index, to_index)` | 속성 순서 변경 |
+
+### 사용 예시
+
+사용자의 `src/editor_config.gleam`에서 `getProperties` 로직을 작성한다. 브릿지가 자동 생성되어 `{WidgetName}.editorConfig.js`로 번들링된다.
+
+```gleam
+import glendix/editor_config.{type Properties}
+import glendix/mendix
+import glendix/react.{type JsProps}
+
+pub fn get_properties(
+  values: JsProps,
+  default_properties: Properties,
+  platform: String,
+) -> Properties {
+  let chart_type = mendix.get_string_prop(values, "chartType")
+
+  let props = case chart_type {
+    "line" ->
+      default_properties
+      |> editor_config.hide_properties(["barWidth", "barColor"])
+    "bar" ->
+      default_properties
+      |> editor_config.hide_properties(["lineStyle", "lineCurve"])
+    _ -> default_properties
+  }
+
+  case platform {
+    "web" -> editor_config.transform_groups_into_tabs(props)
+    _ -> props
+  }
+}
+```
+
+`src/editor_config.gleam` 파일이 존재하면 `run_with_bridge` 실행 시 editorConfig 브릿지 JS가 자동 생성된다.
 
 ## 외부 React 컴포넌트 바인딩
 
