@@ -331,7 +331,7 @@ Mendix Marketplace에서 위젯(.mpk)을 인터랙티브하게 검색·다운로
 MENDIX_PAT=your_personal_access_token
 ```
 
-> PAT는 Mendix Portal → Settings → Personal Access Tokens에서 발급합니다. 필요한 scope: `mx:marketplace-content:read`
+> PAT는 [Mendix Developer Settings](https://user-settings.mendix.com/link/developersettings)에서 **Personal Access Tokens** 섹션의 **New Token**을 클릭하여 발급합니다. 필요한 scope: `mx:marketplace-content:read`
 
 **2. 실행:**
 
