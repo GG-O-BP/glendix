@@ -1,5 +1,5 @@
 // Mendix Marketplace Content API + Playwright 브라우저 다운로드 FFI 어댑터
-import { execSync, spawn } from "node:child_process";
+import { execSync, spawn, fork } from "node:child_process";
 import {
   existsSync,
   readFileSync,
@@ -69,9 +69,12 @@ function curlJson(url, pat) {
 const API_BASE = "https://marketplace-api.mendix.com/v1";
 const FETCH_SIZE = 40;
 const MX_DIR = ".marketplace-cache";
-const CACHE_PATH = `${MX_DIR}/widget_cache.json`;
-const CACHE_TMP = `${MX_DIR}/widget_cache.tmp`;
-const SEED_PATH = `${MX_DIR}/loader_seed.json`;
+
+// ── 모듈 수준 로더 상태 (IPC로 갱신) ──
+
+let loaderWidgets = [];
+let loaderOffset = 0;
+let loaderDone = false;
 
 // ── 디렉토리 보장 ──
 
@@ -112,20 +115,19 @@ export function load_first_batch(pat) {
 
 export function spawn_loader(pat, offset, widgetsJson) {
   const seedWidgets = JSON.parse(widgetsJson);
-  writeFileSync(SEED_PATH, JSON.stringify({
-    pat, offset, widgets: seedWidgets,
-  }));
+
+  // 초기 상태를 모듈 변수에 저장
+  loaderWidgets = seedWidgets;
+  loaderOffset = offset;
+  loaderDone = false;
 
   const script = [
     'import { execSync } from "node:child_process";',
-    'import { readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";',
     '',
-    `const { pat, offset: startOffset, widgets: seedWidgets } = JSON.parse(readFileSync("${SEED_PATH}", "utf-8"));`,
-    `try { unlinkSync("${SEED_PATH}"); } catch {}`,
-    '',
+    `const pat = ${JSON.stringify(pat)};`,
     `const FETCH_SIZE = ${FETCH_SIZE};`,
-    'let offset = startOffset;',
-    'let widgets = seedWidgets;',
+    `let offset = ${offset};`,
+    `let widgets = ${JSON.stringify(seedWidgets)};`,
     '',
     'function curlJson(url) {',
     '  try {',
@@ -136,40 +138,44 @@ export function spawn_loader(pat, offset, widgetsJson) {
     '  } catch { return null; }',
     '}',
     '',
-    'function writeCache(done) {',
-    '  const data = JSON.stringify({ done, widgets, offset });',
-    `  writeFileSync("${CACHE_TMP}", data);`,
-    `  try { renameSync("${CACHE_TMP}", "${CACHE_PATH}"); }`,
-    `  catch { writeFileSync("${CACHE_PATH}", data); }`,
-    '}',
-    '',
     'while (true) {',
     `  const data = curlJson("${API_BASE}/content?limit=" + FETCH_SIZE + "&offset=" + offset);`,
-    '  if (!data || data.error || !(data.items?.length)) { writeCache(true); break; }',
+    '  if (!data || data.error || !(data.items?.length)) {',
+    '    process.send({ type: "update", widgets, offset, done: true });',
+    '    break;',
+    '  }',
     '  for (const item of data.items) {',
     '    if (item.type === "Widget") widgets.push(item);',
     '  }',
     '  offset += FETCH_SIZE;',
-    '  writeCache(data.items.length < FETCH_SIZE);',
-    '  if (data.items.length < FETCH_SIZE) break;',
+    '  const done = data.items.length < FETCH_SIZE;',
+    '  process.send({ type: "update", widgets, offset, done });',
+    '  if (done) break;',
     '}',
   ].join('\n');
 
   const scriptPath = `${MX_DIR}/loader_${Date.now()}.mjs`;
   writeFileSync(scriptPath, script);
-  const child = spawn(process.execPath, [scriptPath], { stdio: "ignore" });
+  const child = fork(scriptPath, [], {
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  });
+  child.on('message', (msg) => {
+    if (msg && msg.type === "update") {
+      loaderWidgets = msg.widgets;
+      loaderOffset = msg.offset;
+      loaderDone = !!msg.done;
+    }
+  });
+  child.on('exit', () => {
+    loaderDone = true;
+  });
   return { child, scriptPath };
 }
 
-// ── 캐시 동기화 ──
+// ── 로더 상태 동기화 ──
 
-export function sync_from_cache() {
-  try {
-    const cache = JSON.parse(readFileSync(CACHE_PATH, "utf-8"));
-    return [toList(cache.widgets), cache.offset, !!cache.done];
-  } catch {
-    return [toList([]), 0, false];
-  }
+export function sync_from_loader() {
+  return [toList(loaderWidgets), loaderOffset, loaderDone];
 }
 
 // ── 로더 관리 ──
@@ -178,9 +184,9 @@ export function cleanup_loader(loader) {
   if (!loader) return;
   try { loader.child.kill(); } catch {}
   try { unlinkSync(loader.scriptPath); } catch {}
-  try { unlinkSync(CACHE_PATH); } catch {}
-  try { unlinkSync(CACHE_TMP); } catch {}
-  try { unlinkSync(SEED_PATH); } catch {}
+  loaderWidgets = [];
+  loaderOffset = 0;
+  loaderDone = false;
 }
 
 export function kill_loader(loader) {
@@ -556,67 +562,86 @@ export function is_tty() {
   return !!process.stdin.isTTY;
 }
 
-export function read_key_raw() {
-  const buf = Buffer.alloc(1);
-  try {
-    const n = readSync(0, buf, 0, 1);
-    if (n === 0) return [0, ""];
-    const byte = buf[0];
+// ── 비동기 키 리더 (stdin flowing 유지) ──
 
-    // ESC sequence
-    if (byte === 0x1b) {
-      try {
-        const b2 = Buffer.alloc(1);
-        const n2 = readSync(0, b2, 0, 1);
-        if (n2 > 0 && b2[0] === 0x5b) {
-          const b3 = Buffer.alloc(1);
-          const n3 = readSync(0, b3, 0, 1);
-          if (n3 > 0) {
-            if (b3[0] === 65) return [1, ""];  // Up
-            if (b3[0] === 66) return [2, ""];  // Down
-            if (b3[0] === 67) return [3, ""];  // Right
-            if (b3[0] === 68) return [4, ""];  // Left
-            if (b3[0] === 72) return [10, ""]; // Home
-            if (b3[0] === 70) return [11, ""]; // End
-            if (b3[0] >= 48 && b3[0] <= 57) {
-              const b4 = Buffer.alloc(1);
-              const n4 = readSync(0, b4, 0, 1);
-              if (n4 > 0 && b4[0] === 0x7e) {
-                if (b3[0] === 53) return [12, ""];  // PageUp
-                if (b3[0] === 54) return [13, ""];  // PageDown
-              }
-            }
-          }
-        }
-      } catch {}
-      return [6, ""];  // Escape
-    }
+let stdinActive = false;
+let keyQueue = [];
+let keyResolver = null;
+let keyTimer = null;
 
-    if (byte === 0x0d || byte === 0x0a) return [5, ""];  // Enter
-    if (byte === 0x7f || byte === 0x08) return [7, ""];   // Backspace
-    if (byte === 0x03) return [8, ""];                     // Ctrl+C
-    if (byte === 0x09) return [9, "\t"];                   // Tab
+function ensureStdin() {
+  if (stdinActive) return;
+  stdinActive = true;
+  process.stdin.on('data', onStdinData);
+  process.stdin.resume();
+}
 
-    // UTF-8 multi-byte
-    let totalBytes = 1;
-    if (byte >= 0xc0 && byte < 0xe0) totalBytes = 2;
-    else if (byte >= 0xe0 && byte < 0xf0) totalBytes = 3;
-    else if (byte >= 0xf0) totalBytes = 4;
-
-    if (totalBytes > 1) {
-      const mbuf = Buffer.alloc(totalBytes);
-      mbuf[0] = byte;
-      for (let i = 1; i < totalBytes; i++) {
-        const nr = readSync(0, mbuf, i, 1);
-        if (nr === 0) break;
-      }
-      return [9, mbuf.toString("utf-8")];
-    }
-
-    return [9, String.fromCharCode(byte)];
-  } catch {
-    return [0, ""];
+function onStdinData(data) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf8');
+  const key = parseKeyBuf(buf);
+  if (keyResolver) {
+    if (keyTimer) { clearTimeout(keyTimer); keyTimer = null; }
+    const r = keyResolver;
+    keyResolver = null;
+    r(key);
+  } else {
+    keyQueue.push(key);
   }
+}
+
+function parseKeyBuf(buf) {
+  if (buf.length === 0) return [0, ""];
+  const b = buf[0];
+
+  if (b === 0x1b) {
+    if (buf.length >= 3 && buf[1] === 0x5b) {
+      if (buf[2] === 65) return [1, ""];  // Up
+      if (buf[2] === 66) return [2, ""];  // Down
+      if (buf[2] === 67) return [3, ""];  // Right
+      if (buf[2] === 68) return [4, ""];  // Left
+      if (buf[2] === 72) return [10, ""]; // Home
+      if (buf[2] === 70) return [11, ""]; // End
+      if (buf.length >= 4 && buf[3] === 0x7e) {
+        if (buf[2] === 53) return [12, ""];  // PageUp
+        if (buf[2] === 54) return [13, ""];  // PageDown
+      }
+    }
+    return [6, ""];  // Escape
+  }
+
+  if (b === 0x0d || b === 0x0a) return [5, ""];  // Enter
+  if (b === 0x7f || b === 0x08) return [7, ""];   // Backspace
+  if (b === 0x03) return [8, ""];                  // Ctrl+C
+  if (b === 0x09) return [9, "\t"];                // Tab
+
+  // UTF-8 (전체 버퍼)
+  let totalBytes = 1;
+  if (b >= 0xc0 && b < 0xe0) totalBytes = 2;
+  else if (b >= 0xe0 && b < 0xf0) totalBytes = 3;
+  else if (b >= 0xf0) totalBytes = 4;
+  return [9, buf.slice(0, totalBytes).toString("utf-8")];
+}
+
+// timeout_ms: 0 = 무한 대기, >0 = 타임아웃(ms) 후 [0,""] 반환
+export function poll_key_raw(timeout_ms) {
+  ensureStdin();
+  if (keyQueue.length > 0) {
+    return Promise.resolve(keyQueue.shift());
+  }
+  return new Promise(resolve => {
+    if (timeout_ms > 0) {
+      keyTimer = setTimeout(() => {
+        keyResolver = null;
+        keyTimer = null;
+        resolve([0, ""]);
+      }, timeout_ms);
+    }
+    keyResolver = resolve;
+  });
+}
+
+export function exit_process() {
+  process.exit(0);
 }
 
 // ── 스피너 애니메이션 ──

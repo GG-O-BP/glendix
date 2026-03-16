@@ -8,6 +8,7 @@ import glendix/cmd
 import glendix/marketplace/ui
 import gleam/int
 import gleam/io
+import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -121,8 +122,8 @@ fn spawn_loader(
   widgets_json: String,
 ) -> WidgetLoader
 
-@external(javascript, "./marketplace_ffi.mjs", "sync_from_cache")
-fn sync_from_cache() -> #(List(MarketplaceWidget), Int, Bool)
+@external(javascript, "./marketplace_ffi.mjs", "sync_from_loader")
+fn sync_from_loader() -> #(List(MarketplaceWidget), Int, Bool)
 
 @external(javascript, "./marketplace_ffi.mjs", "cleanup_loader")
 fn cleanup_loader(loader: WidgetLoader) -> Nil
@@ -196,8 +197,11 @@ fn widgets_to_json(widgets: List(MarketplaceWidget)) -> String
 @external(javascript, "./marketplace_ffi.mjs", "is_tty")
 fn is_tty() -> Bool
 
-@external(javascript, "./marketplace_ffi.mjs", "read_key_raw")
-fn read_key_raw() -> #(Int, String)
+@external(javascript, "./marketplace_ffi.mjs", "exit_process")
+fn exit_process() -> Nil
+
+@external(javascript, "./marketplace_ffi.mjs", "poll_key_raw")
+fn poll_key_raw(timeout_ms: Int) -> Promise(#(Int, String))
 
 @external(javascript, "./marketplace_ffi.mjs", "start_spinner")
 fn start_spinner(label: String, row: Int) -> Nil
@@ -341,9 +345,14 @@ pub fn main() {
           case is_tty() {
             True -> {
               enter_tui()
-              let final_state = tui_loop(state)
-              exit_tui()
-              finish(final_state)
+              {
+                use final_state <- promise.await(tui_loop(state))
+                exit_tui()
+                finish(final_state)
+                exit_process()
+                promise.resolve(Nil)
+              }
+              Nil
             }
             False -> {
               let final_state = prompt_loop(state)
@@ -379,14 +388,23 @@ fn finish(state: MarketplaceState) -> Nil {
 
 // ── TUI 이벤트 루프 ──
 
-fn tui_loop(state: MarketplaceState) -> MarketplaceState {
+fn tui_loop(state: MarketplaceState) -> Promise(MarketplaceState) {
   let state = sync_state(state)
   render(state)
-  let key = parse_key(read_key_raw())
-
-  case state.view_mode {
-    Browse -> handle_browse_key(state, key)
-    SelectVersion(_, _, _, _, _) -> handle_version_key(state, key)
+  // 로딩 중이면 500ms 폴링으로 화면 실시간 갱신, 완료 후에는 키 입력 대기
+  let timeout = case state.all_loaded {
+    True -> 0
+    False -> 500
+  }
+  use raw <- promise.await(poll_key_raw(timeout))
+  let key = parse_key(raw)
+  case key {
+    KeyNone -> tui_loop(state)
+    _ ->
+      case state.view_mode {
+        Browse -> handle_browse_key(state, key)
+        SelectVersion(..) -> handle_version_key(state, key)
+      }
   }
 }
 
@@ -395,12 +413,12 @@ fn tui_loop(state: MarketplaceState) -> MarketplaceState {
 fn handle_browse_key(
   state: MarketplaceState,
   key: KeyInput,
-) -> MarketplaceState {
+) -> Promise(MarketplaceState) {
   // 이전 상태 메시지 클리어
   let state = MarketplaceState(..state, status_msg: None)
   case key {
-    KeyCtrlC -> state
-    KeyChar("q") if state.search_query == "" -> state
+    KeyCtrlC -> promise.resolve(state)
+    KeyChar("q") if state.search_query == "" -> promise.resolve(state)
     KeyUp -> tui_loop(move_cursor(state, -1))
     KeyDown -> tui_loop(move_cursor(state, 1))
     KeyLeft -> tui_loop(change_page(state, -1))
@@ -431,10 +449,13 @@ fn handle_browse_key(
 fn handle_version_key(
   state: MarketplaceState,
   key: KeyInput,
-) -> MarketplaceState {
+) -> Promise(MarketplaceState) {
   case key {
-    KeyCtrlC -> state
-    KeyEscape -> tui_loop(MarketplaceState(..state, view_mode: Browse, status_msg: None))
+    KeyCtrlC -> promise.resolve(state)
+    KeyEscape ->
+      tui_loop(
+        MarketplaceState(..state, view_mode: Browse, status_msg: None),
+      )
     KeyUp -> {
       case state.view_mode {
         SelectVersion(n, vs, vc, q, x) -> {
@@ -817,7 +838,7 @@ fn sync_state(state: MarketplaceState) -> MarketplaceState {
   case state.all_loaded {
     True -> state
     False -> {
-      let #(widgets, new_offset, done) = sync_from_cache()
+      let #(widgets, new_offset, done) = sync_from_loader()
       case new_offset > state.offset {
         True ->
           MarketplaceState(

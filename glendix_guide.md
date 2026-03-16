@@ -2116,7 +2116,7 @@ Enter를 누르면 최신 버전이 다운로드됩니다.
 #### 동작 흐름
 
 1. **첫 배치 로드** — Content API에서 첫 40개 아이템을 직접 로드하여 즉시 표시
-2. **백그라운드 로드** — 나머지 아이템을 별도 프로세스에서 비동기 로드 (`.marketplace-cache/`에 캐시)
+2. **백그라운드 로드** — 나머지 아이템을 별도 프로세스(fork)에서 비동기 로드, IPC로 메인 프로세스에 전달
 3. **위젯 선택 시** — Playwright(headless chromium)로 Marketplace 페이지에서 S3 다운로드 URL 추출
 4. **다운로드** — S3에서 `.mpk` 파일을 `widgets/` 디렉토리에 저장
 5. **바인딩 생성** — `cmd.generate_widget_bindings()`가 자동 호출되어 `src/widgets/`에 바인딩 `.gleam` 파일 생성
