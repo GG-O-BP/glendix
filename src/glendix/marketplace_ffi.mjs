@@ -8,10 +8,12 @@ import {
   mkdirSync,
   unlinkSync,
 } from "node:fs";
+import { Some, None } from "../../gleam_stdlib/gleam/option.mjs";
+import { toList } from "../gleam.mjs";
 
 // ── 동기 stdin 입력 (Windows/Unix 호환) ──
 
-function promptSync(question) {
+export function prompt_sync(question) {
   process.stdout.write(question);
   let input = "";
   const buf = Buffer.alloc(1);
@@ -45,6 +47,11 @@ function readEnvValue(key) {
   return null;
 }
 
+export function read_pat() {
+  const v = readEnvValue("MENDIX_PAT");
+  return v ? new Some(v) : new None();
+}
+
 // ── Content API 호출 ──
 
 function curlJson(url, pat) {
@@ -61,31 +68,27 @@ function curlJson(url, pat) {
 
 const API_BASE = "https://marketplace-api.mendix.com/v1";
 const FETCH_SIZE = 40;
-const DISPLAY_SIZE = 10;
-
-// 위젯 로드 상태
-let allWidgets = [];
-let apiOffset = 0;
-let allLoaded = false;
-
 const MX_DIR = ".marketplace-cache";
 const CACHE_PATH = `${MX_DIR}/widget_cache.json`;
 const CACHE_TMP = `${MX_DIR}/widget_cache.tmp`;
 const SEED_PATH = `${MX_DIR}/loader_seed.json`;
 
-function sleepMs(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// ── 디렉토리 보장 ──
+
+export function ensure_cache_dir() {
+  if (!existsSync(MX_DIR)) mkdirSync(MX_DIR, { recursive: true });
 }
 
-// API에서 한 배치 로드 (첫 배치용)
-function loadBatch(pat) {
-  if (allLoaded) return false;
-  const url = `${API_BASE}/content?limit=${FETCH_SIZE}&offset=${apiOffset}`;
+export function ensure_widgets_dir() {
+  if (!existsSync("widgets")) mkdirSync("widgets", { recursive: true });
+}
+
+// ── 첫 배치 로드 ──
+
+export function load_first_batch(pat) {
+  const url = `${API_BASE}/content?limit=${FETCH_SIZE}&offset=0`;
   const data = curlJson(url, pat);
-  if (!data) {
-    allLoaded = true;
-    return false;
-  }
+  if (!data) return [toList([]), 0, true];
 
   if (data.error) {
     if (data.error.code === 401) {
@@ -93,29 +96,24 @@ function loadBatch(pat) {
     } else {
       console.log(`API 에러: ${data.error.message}`);
     }
-    allLoaded = true;
-    return false;
+    return [toList([]), 0, true];
   }
 
   const items = data.items || [];
-  if (items.length === 0) {
-    allLoaded = true;
-    return false;
-  }
+  if (items.length === 0) return [toList([]), 0, true];
 
-  for (const item of items) {
-    if (item.type === "Widget") allWidgets.push(item);
-  }
-
-  apiOffset += FETCH_SIZE;
-  if (items.length < FETCH_SIZE) allLoaded = true;
-  return true;
+  const widgets = items.filter((item) => item.type === "Widget");
+  const nextOffset = FETCH_SIZE;
+  const allDone = items.length < FETCH_SIZE;
+  return [toList(widgets), nextOffset, allDone];
 }
 
-// 백그라운드 로더 프로세스 시작 (나머지 배치)
-function spawnLoader(pat) {
+// ── 백그라운드 로더 ──
+
+export function spawn_loader(pat, offset, widgetsJson) {
+  const seedWidgets = JSON.parse(widgetsJson);
   writeFileSync(SEED_PATH, JSON.stringify({
-    pat, offset: apiOffset, widgets: allWidgets,
+    pat, offset, widgets: seedWidgets,
   }));
 
   const script = [
@@ -163,30 +161,20 @@ function spawnLoader(pat) {
   return { child, scriptPath };
 }
 
-// 캐시 파일에서 위젯 동기화
-function syncFromCache() {
+// ── 캐시 동기화 ──
+
+export function sync_from_cache() {
   try {
     const cache = JSON.parse(readFileSync(CACHE_PATH, "utf-8"));
-    if (cache.widgets.length > allWidgets.length) {
-      allWidgets = cache.widgets;
-    }
-    if (cache.offset > apiOffset) {
-      apiOffset = cache.offset;
-    }
-    if (cache.done) allLoaded = true;
-  } catch {}
-}
-
-// 전체 로드 완료 대기
-function waitForAllLoaded() {
-  while (!allLoaded) {
-    sleepMs(200);
-    syncFromCache();
+    return [toList(cache.widgets), cache.offset, !!cache.done];
+  } catch {
+    return [toList([]), 0, false];
   }
 }
 
-// 로더 프로세스 정리
-function cleanupLoader(loader) {
+// ── 로더 관리 ──
+
+export function cleanup_loader(loader) {
   if (!loader) return;
   try { loader.child.kill(); } catch {}
   try { unlinkSync(loader.scriptPath); } catch {}
@@ -195,33 +183,50 @@ function cleanupLoader(loader) {
   try { unlinkSync(SEED_PATH); } catch {}
 }
 
-// 검색 필터
-function filterWidgets(widgets, query) {
-  if (!query) return widgets;
-  const q = query.toLowerCase();
-  return widgets.filter((item) => {
-    const name = getName(item) || "";
-    const pub = getPublisher(item) || "";
-    return name.toLowerCase().includes(q) || pub.toLowerCase().includes(q);
-  });
+export function kill_loader(loader) {
+  if (!loader) return;
+  try { loader.child.kill(); } catch {}
 }
 
-// ── 아이템 필드 접근 ──
+// ── SIGINT 핸들러 ──
 
-function getName(item) {
-  return item.latestVersion ? item.latestVersion.name : null;
+let currentExitHandler = null;
+
+export function register_exit_handler(loader) {
+  remove_exit_handler();
+  currentExitHandler = () => {
+    cleanup_loader(loader);
+    process.exit();
+  };
+  process.on("SIGINT", currentExitHandler);
 }
 
-function getContentId(item) {
+export function remove_exit_handler() {
+  if (currentExitHandler) {
+    process.removeListener("SIGINT", currentExitHandler);
+    currentExitHandler = null;
+  }
+}
+
+// ── 위젯 접근자 ──
+
+export function widget_name(item) {
+  const n = item.latestVersion ? item.latestVersion.name : null;
+  return n ? new Some(n) : new None();
+}
+
+export function widget_content_id(item) {
   return item.contentId;
 }
 
-function getPublisher(item) {
-  return item.publisher;
+export function widget_publisher(item) {
+  const p = item.publisher;
+  return p ? new Some(p) : new None();
 }
 
-function getLatestVersion(item) {
-  return item.latestVersion ? item.latestVersion.versionNumber : null;
+export function widget_latest_version(item) {
+  const v = item.latestVersion ? item.latestVersion.versionNumber : null;
+  return v ? new Some(v) : new None();
 }
 
 // ── Playwright 스크립트 실행 ──
@@ -243,16 +248,13 @@ function runPw(script, timeout) {
       stdio: ["pipe", "pipe", "inherit"],
     }).trim();
   } finally {
-    try {
-      unlinkSync(tmp);
-    } catch {}
+    try { unlinkSync(tmp); } catch {}
   }
 }
 
 // ── Mendix 로그인 세션 관리 ──
 
-function ensureSession() {
-  // 저장된 세션 유효성 확인 (headless)
+export function ensure_session() {
   if (existsSync(SESSION_PATH)) {
     try {
       const out = runPw(
@@ -274,7 +276,6 @@ console.log(JSON.stringify({ valid }));
     console.log("  저장된 세션이 만료되었습니다.");
   }
 
-  // 브라우저 열어서 로그인
   console.log("  브라우저에서 Mendix 로그인을 완료하세요...\n");
   try {
     const tmp = `${MX_DIR}/pw_${Date.now()}.mjs`;
@@ -298,9 +299,7 @@ await b.close();
         stdio: "inherit",
       });
     } finally {
-      try {
-        unlinkSync(tmp);
-      } catch {}
+      try { unlinkSync(tmp); } catch {}
     }
     if (existsSync(SESSION_PATH)) {
       console.log("  로그인 성공!\n");
@@ -316,20 +315,20 @@ await b.close();
 
 // ── Content API로 버전 목록 조회 ──
 
-function fetchVersions(contentId, pat) {
+export function fetch_versions(contentId, pat) {
   const url = `${API_BASE}/content/${contentId}/versions`;
   const data = curlJson(url, pat);
-  if (!data || !data.items) return [];
-  // publicationDate 내림차순 (최신 먼저)
-  return data.items.sort(
+  if (!data || !data.items) return toList([]);
+  const sorted = data.items.sort(
     (a, b) => new Date(b.publicationDate) - new Date(a.publicationDate),
   );
+  return toList(sorted);
 }
 
 // ── Playwright로 버전별 다운로드 정보 추출 ──
 
-function getAllVersionInfo(contentIds) {
-  const ids = JSON.stringify(contentIds);
+export function get_all_version_info(contentIds) {
+  const ids = JSON.stringify(contentIds.toArray());
   try {
     const out = runPw(
       `
@@ -343,12 +342,10 @@ const c = await b.newContext({ storageState: '${esc(SESSION_PATH)}' });
 const p = await c.newPage();
 
 for (const id of ids) {
-  // XAS 응답 promise를 동기적으로 수집 (async handler race condition 방지)
   const responsePromises = [];
 
   const xasHandler = (response) => {
     if (!response.url().includes('/xas/')) return;
-    // response.json()을 즉시 호출하여 promise 저장 — await하지 않음
     responsePromises.push(response.json().catch(() => null));
   };
   p.on('response', xasHandler);
@@ -359,7 +356,6 @@ for (const id of ids) {
       timeout: 30000,
     });
 
-    // Releases 탭 클릭 시도
     let tabClicked = false;
     const tabSelectors = [
       'a.mx-name-tabPage10',
@@ -378,7 +374,6 @@ for (const id of ids) {
       } catch {}
     }
 
-    // 추가 XAS 응답 대기
     await p.waitForTimeout(3000);
   } catch (e) {
     process.stderr.write('  [pw] 오류 (id=' + id + '): ' + e.message + '\\n');
@@ -386,7 +381,6 @@ for (const id of ids) {
 
   p.removeListener('response', xasHandler);
 
-  // 수집한 모든 XAS 응답에서 버전 데이터 추출
   const versions = [];
   const seen = new Set();
   const responses = await Promise.all(responsePromises);
@@ -428,10 +422,13 @@ console.log(JSON.stringify(results));
   }
 }
 
+/// VersionInfoMap에서 특정 content_id의 XAS 버전 목록 추출
+export function get_version_info_for(map, contentId) {
+  return toList(map[contentId] || []);
+}
+
 // ── 버전 목록 병합 (Content API + XAS) ──
 
-// S3ObjectId에서 URL 템플릿을 추출한다
-// "5/54611/3.2.2/StarRating.mpk" → { prefix: "5/54611", fileName: "StarRating.mpk" }
 function extractS3Template(xasVersions) {
   for (const x of xasVersions) {
     if (!x.s3ObjectId) continue;
@@ -443,13 +440,10 @@ function extractS3Template(xasVersions) {
   return null;
 }
 
-// XAS 버전을 DisplayVersionNumber 또는 S3ObjectId에서 추출한 버전으로 인덱싱
 function buildXasIndex(xasVersions) {
   const byVersion = new Map();
   for (const x of xasVersions) {
-    // DisplayVersionNumber
     if (x.versionNumber) byVersion.set(x.versionNumber, x);
-    // S3ObjectId에서 추출 ("5/54611/3.2.2/StarRating.mpk" → "3.2.2")
     if (x.s3ObjectId) {
       const parts = x.s3ObjectId.split("/");
       if (parts.length >= 4) byVersion.set(parts[2], x);
@@ -458,15 +452,16 @@ function buildXasIndex(xasVersions) {
   return byVersion;
 }
 
-function mergeVersionData(apiVersions, xasVersions) {
-  const xasIndex = buildXasIndex(xasVersions);
-  const s3Template = extractS3Template(xasVersions);
+export function merge_version_data(apiVersions, xasVersions) {
+  const apiArr = apiVersions.toArray();
+  const xasArr = xasVersions.toArray();
+  const xasIndex = buildXasIndex(xasArr);
+  const s3Template = extractS3Template(xasArr);
 
-  return apiVersions.map((api) => {
+  const merged = apiArr.map((api) => {
     const xas = xasIndex.get(api.versionNumber) || null;
 
     if (xas) {
-      // XAS에서 직접 매칭 — reactReady 확정
       return {
         versionNumber: api.versionNumber,
         publicationDate: api.publicationDate,
@@ -477,14 +472,13 @@ function mergeVersionData(apiVersions, xasVersions) {
       };
     }
 
-    // XAS 미매칭 — S3 URL 템플릿으로 구성 (reactReady 알 수 없음)
     if (s3Template) {
       return {
         versionNumber: api.versionNumber,
         publicationDate: api.publicationDate,
         minMendixVersion: api.minSupportedMendixVersion || null,
         s3ObjectId: `${s3Template.prefix}/${api.versionNumber}/${s3Template.fileName}`,
-        reactReady: null, // 알 수 없음
+        reactReady: null,
         downloadable: true,
       };
     }
@@ -498,291 +492,163 @@ function mergeVersionData(apiVersions, xasVersions) {
       downloadable: false,
     };
   });
+
+  return toList(merged);
 }
 
-// ── 버전 선택 UI ──
+// ── 버전 접근자 ──
 
-function displayVersionList(widgetName, versions) {
-  console.log(`\n  ${widgetName} — 버전 선택:\n`);
-  for (let i = 0; i < versions.length; i++) {
-    const v = versions[i];
-    const date = v.publicationDate ? v.publicationDate.slice(0, 10) : "?";
-    const minMx = v.minMendixVersion ? ` (Mendix ≥${v.minMendixVersion})` : "";
-    let typeLabel;
-    if (!v.downloadable) {
-      typeLabel = " [다운로드 불가]";
-    } else if (v.reactReady === true) {
-      typeLabel = " [Pluggable]";
-    } else if (v.reactReady === false) {
-      typeLabel = " [Classic]";
-    } else {
-      typeLabel = "";
-    }
-    const defaultMark = i === 0 ? "  ← 기본" : "";
-    console.log(`    [${i}] v${v.versionNumber} (${date})${minMx}${typeLabel}${defaultMark}`);
-  }
-  console.log("");
+export function version_number(v) {
+  return v.versionNumber;
 }
 
-function promptVersionSelection(versions) {
-  const input = promptSync("  버전 번호 (Enter=최신): ");
-  if (input === "") return 0;
-  const idx = parseInt(input);
-  if (isNaN(idx) || idx < 0 || idx >= versions.length) return -1;
-  return idx;
+export function version_date(v) {
+  return v.publicationDate ? new Some(v.publicationDate) : new None();
+}
+
+export function version_min_mendix(v) {
+  return v.minMendixVersion ? new Some(v.minMendixVersion) : new None();
+}
+
+export function version_downloadable(v) {
+  return !!v.downloadable;
+}
+
+export function version_react_ready(v) {
+  if (v.reactReady === true) return new Some(true);
+  if (v.reactReady === false) return new Some(false);
+  return new None();
+}
+
+export function version_s3_id(v) {
+  return v.s3ObjectId ? new Some(v.s3ObjectId) : new None();
 }
 
 // ── S3 URL에서 다운로드 ──
 
-function downloadFromUrl(url) {
+export function download_from_url(url) {
   const fileName = url.split("/").pop();
   const dest = `widgets/${fileName}`;
 
   if (existsSync(dest)) {
     console.log(`        → ${fileName} 이미 존재 (스킵)`);
-    return fileName;
+    return new Some(fileName);
   }
 
   try {
     execSync(`curl -s -L -o "${dest}" "${url}"`, { shell: true });
-    return fileName;
+    return new Some(fileName);
   } catch {
     console.log(`        ✗ 다운로드 실패`);
-    return null;
+    return new None();
   }
 }
 
-// ── 페이지 표시 ──
+// ── 위젯 JSON 변환 ──
 
-function displayPage(items, pageNum, totalPages) {
-  console.log(`  ── 페이지 ${pageNum}/${totalPages} ──\n`);
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    const ver = getLatestVersion(item);
-    const verStr = ver ? ` v${ver}` : "";
-    const pub = getPublisher(item);
-    const pubStr = pub ? ` — ${pub}` : "";
-    console.log(
-      `  [${i}] ${getName(item)} (${getContentId(item)})${verStr}${pubStr}`,
-    );
-  }
-
-  console.log(
-    "\n  번호: 다운로드 | 검색어: 이름 검색 | n: 다음 | p: 이전 | r: 초기화 | q: 종료\n",
-  );
+export function widgets_to_json(widgets) {
+  return JSON.stringify(widgets.toArray());
 }
 
-// ── 메인 ──
+// ── TUI 입력 ──
 
-export function download_widgets() {
-  const pat = readEnvValue("MENDIX_PAT");
-  if (!pat) {
-    console.log(
-      ".env 파일에 MENDIX_PAT가 필요합니다.\n\n" +
-        "예시 (.env):\n" +
-        "  MENDIX_PAT=your_personal_access_token\n\n" +
-        "PAT는 Mendix Portal → Settings → Personal Access Tokens에서 발급합니다.\n" +
-        "필요한 scope: mx:marketplace-content:read",
-    );
-    return;
-  }
+export function is_tty() {
+  return !!process.stdin.isTTY;
+}
 
-  // 상태 초기화
-  if (!existsSync(MX_DIR)) mkdirSync(MX_DIR, { recursive: true });
-
-  allWidgets = [];
-  apiOffset = 0;
-  allLoaded = false;
-
-  // 첫 배치 직접 로드 → 즉시 표시
-  loadBatch(pat);
-  if (allWidgets.length === 0) {
-    console.log("  위젯을 불러올 수 없습니다.\n");
-    return;
-  }
-
-  // 나머지를 백그라운드 프로세스에서 로드
-  let loader = allLoaded ? null : spawnLoader(pat);
-
-  // Ctrl+C 종료 시 정리
-  const onExit = () => {
-    cleanupLoader(loader);
-    process.exit();
-  };
-  process.on("SIGINT", onExit);
-
-  let filtered = null;
-  let pageIndex = 0;
-  let downloaded = 0;
-
-  function source() {
-    return filtered || allWidgets;
-  }
-
-  function currentPageItems() {
-    return source().slice(pageIndex * DISPLAY_SIZE, (pageIndex + 1) * DISPLAY_SIZE);
-  }
-
-  function totalPagesStr() {
-    const total = Math.max(1, Math.ceil(source().length / DISPLAY_SIZE));
-    return allLoaded || filtered ? `${total}` : `${total}+`;
-  }
-
-  function showPage() {
-    displayPage(currentPageItems(), pageIndex + 1, totalPagesStr());
-  }
-
+export function read_key_raw() {
+  const buf = Buffer.alloc(1);
   try {
-    showPage();
+    const n = readSync(0, buf, 0, 1);
+    if (n === 0) return [0, ""];
+    const byte = buf[0];
 
-    while (true) {
-      const input = promptSync("> ");
-
-      // 매 입력마다 백그라운드 로더 결과 동기화
-      if (!allLoaded) syncFromCache();
-
-      if (input === "q") break;
-      if (input === "") continue;
-
-      // 다음 페이지
-      if (input === "n") {
-        if ((pageIndex + 1) * DISPLAY_SIZE >= source().length) {
-          console.log("  마지막 페이지입니다.\n");
-          continue;
+    // ESC sequence
+    if (byte === 0x1b) {
+      try {
+        const b2 = Buffer.alloc(1);
+        const n2 = readSync(0, b2, 0, 1);
+        if (n2 > 0 && b2[0] === 0x5b) {
+          const b3 = Buffer.alloc(1);
+          const n3 = readSync(0, b3, 0, 1);
+          if (n3 > 0) {
+            if (b3[0] === 65) return [1, ""];  // Up
+            if (b3[0] === 66) return [2, ""];  // Down
+            if (b3[0] === 67) return [3, ""];  // Right
+            if (b3[0] === 68) return [4, ""];  // Left
+            if (b3[0] === 72) return [10, ""]; // Home
+            if (b3[0] === 70) return [11, ""]; // End
+            if (b3[0] >= 48 && b3[0] <= 57) {
+              const b4 = Buffer.alloc(1);
+              const n4 = readSync(0, b4, 0, 1);
+              if (n4 > 0 && b4[0] === 0x7e) {
+                if (b3[0] === 53) return [12, ""];  // PageUp
+                if (b3[0] === 54) return [13, ""];  // PageDown
+              }
+            }
+          }
         }
-        pageIndex++;
-        console.log("");
-        showPage();
-        continue;
-      }
-
-      // 이전 페이지
-      if (input === "p") {
-        if (pageIndex === 0) {
-          console.log("  첫 페이지입니다.\n");
-          continue;
-        }
-        pageIndex--;
-        console.log("");
-        showPage();
-        continue;
-      }
-
-      // 초기화 (검색 해제)
-      if (input === "r") {
-        filtered = null;
-        pageIndex = 0;
-        console.log("\n  검색 초기화\n");
-        showPage();
-        continue;
-      }
-
-      // 숫자 입력 → 다운로드
-      const page = currentPageItems();
-      if (/^[\d,\s]+$/.test(input) && page.length > 0) {
-        const indices = input
-          .split(",")
-          .map((s) => parseInt(s.trim()))
-          .filter((i) => i >= 0 && i < page.length);
-
-        if (indices.length > 0) {
-          if (!existsSync("widgets")) mkdirSync("widgets", { recursive: true });
-
-          // 다운로드 진행 전 백그라운드 로더 중지 (리소스 확보)
-          if (loader) {
-            syncFromCache();
-            try { loader.child.kill(); } catch {}
-          }
-
-          const selectedWidgets = indices.map((idx) => ({
-            contentId: getContentId(page[idx]),
-            name: getName(page[idx]),
-          }));
-
-          // 다운로드 시 로그인 세션 확인 (xas 접근에 필요)
-          const sessionReady = ensureSession();
-          if (!sessionReady) {
-            console.log("  Mendix 로그인이 필요합니다.\n");
-            if (!allLoaded) loader = spawnLoader(pat);
-            showPage();
-            continue;
-          }
-
-          // Playwright로 전체 버전 다운로드 정보 일괄 조회
-          console.log("\n  버전 정보 조회 중...");
-          const allXasData = getAllVersionInfo(selectedWidgets.map((w) => w.contentId));
-
-          // 각 위젯별로 버전 선택 → 다운로드
-          for (const w of selectedWidgets) {
-            // Content API에서 버전 목록 조회
-            const apiVersions = fetchVersions(w.contentId, pat);
-            const xasVersions = allXasData[w.contentId] || [];
-
-            if (apiVersions.length === 0) {
-              console.log(`\n  ${w.name} — 버전 정보를 가져올 수 없습니다.`);
-              continue;
-            }
-
-            // API + XAS 데이터 병합
-            const merged = mergeVersionData(apiVersions, xasVersions);
-
-            // 버전 목록 표시 + 선택
-            displayVersionList(w.name, merged);
-            const vIdx = promptVersionSelection(merged);
-
-            if (vIdx < 0) {
-              console.log("    잘못된 선택입니다. 건너뜁니다.\n");
-              continue;
-            }
-
-            const selected = merged[vIdx];
-            if (!selected.downloadable || !selected.s3ObjectId) {
-              console.log(`    v${selected.versionNumber}은 다운로드할 수 없습니다.\n`);
-              continue;
-            }
-
-            const url = "https://files.appstore.mendix.com/" + selected.s3ObjectId;
-            const fn = downloadFromUrl(url);
-            if (fn) {
-              const typeLabel = selected.reactReady === true ? "Pluggable" : selected.reactReady === false ? "Classic" : "";
-              console.log(`        → ${fn} 다운로드 완료${typeLabel ? ` (${typeLabel})` : ""}`);
-              downloaded++;
-            }
-          }
-
-          // 다운로드 완료 후 로더 재시작
-          if (!allLoaded) {
-            loader = spawnLoader(pat);
-          }
-
-          console.log("");
-          showPage();
-          continue;
-        }
-      }
-
-      // 검색어 → 로드된 위젯에서 필터
-      const result = filterWidgets(allWidgets, input);
-      pageIndex = 0;
-
-      if (result.length === 0) {
-        console.log(`  "${input}" 검색 결과가 없습니다.${allLoaded ? "" : " (로드 중 — 더 있을 수 있음)"}\n`);
-        filtered = null;
-        continue;
-      }
-
-      filtered = result;
-      const suffix = allLoaded ? "" : " (로드 중 — 더 있을 수 있음)";
-      console.log(`\n  "${input}" 검색 결과: ${filtered.length}개${suffix} — r: 전체 목록으로 복귀\n`);
-      showPage();
+      } catch {}
+      return [6, ""];  // Escape
     }
-  } finally {
-    process.removeListener("SIGINT", onExit);
-    cleanupLoader(loader);
-  }
 
-  if (downloaded > 0) {
-    console.log(`\n다운로드 완료: ${downloaded}개`);
+    if (byte === 0x0d || byte === 0x0a) return [5, ""];  // Enter
+    if (byte === 0x7f || byte === 0x08) return [7, ""];   // Backspace
+    if (byte === 0x03) return [8, ""];                     // Ctrl+C
+    if (byte === 0x09) return [9, "\t"];                   // Tab
+
+    // UTF-8 multi-byte
+    let totalBytes = 1;
+    if (byte >= 0xc0 && byte < 0xe0) totalBytes = 2;
+    else if (byte >= 0xe0 && byte < 0xf0) totalBytes = 3;
+    else if (byte >= 0xf0) totalBytes = 4;
+
+    if (totalBytes > 1) {
+      const mbuf = Buffer.alloc(totalBytes);
+      mbuf[0] = byte;
+      for (let i = 1; i < totalBytes; i++) {
+        const nr = readSync(0, mbuf, i, 1);
+        if (nr === 0) break;
+      }
+      return [9, mbuf.toString("utf-8")];
+    }
+
+    return [9, String.fromCharCode(byte)];
+  } catch {
+    return [0, ""];
   }
 }
+
+// ── 스피너 애니메이션 ──
+
+let spinnerChild = null;
+
+export function start_spinner(label, row) {
+  stop_spinner();
+  const safeLabel = label
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, " ");
+  const scriptPath = `${MX_DIR}/spinner_${Date.now()}.mjs`;
+  writeFileSync(
+    scriptPath,
+    `const f='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'.split('');let i=0;
+setInterval(()=>{process.stdout.write('\\x1b[${row};1H\\x1b[2K  '+f[i++%f.length]+' ${safeLabel}')},80);`,
+  );
+  spinnerChild = spawn(process.execPath, [scriptPath], {
+    stdio: ["pipe", "inherit", "pipe"],
+  });
+  spinnerChild.unref();
+  spinnerChild._scriptPath = scriptPath;
+}
+
+export function stop_spinner() {
+  if (spinnerChild) {
+    try { spinnerChild.kill(); } catch {}
+    try { unlinkSync(spinnerChild._scriptPath); } catch {}
+    spinnerChild = null;
+  }
+}
+
+// 프로세스 종료 시 스피너 정리
+process.on("exit", () => { stop_spinner(); });
