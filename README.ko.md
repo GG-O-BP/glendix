@@ -86,6 +86,7 @@ pub fn widget(props: JsProps) -> ReactElement {
 | `glendix/widget` | `.mpk` 위젯을 React 컴포넌트로 쓰는 거! — `widgets/` 폴더에 넣으면 끝! 완전 편해! |
 | `glendix/classic` | 옛날 Classic (Dojo) 위젯 래퍼 — `classic.render(widget_id, properties)` 패턴 |
 | `glendix/marketplace` | Mendix Marketplace에서 위젯 검색하고 다운받는 거! — `gleam run -m glendix/marketplace` |
+| `glendix/define` | 위젯 프로퍼티 정의 TUI 에디터! — 그룹 추가, 타입 설정, 열거형 관리까지 터미널에서 다 돼! |
 
 ### Mendix 쪽!
 
@@ -397,6 +398,7 @@ glendix에 빌드 스크립트가 다 들어있어! 따로 파일 만들 필요 
 |--------|-------------|
 | `gleam run -m glendix/install` | 의존성 설치 + 바인딩 생성 + 위젯 바인딩 생성 + 위젯 `.gleam` 파일 생성 (패키지 매니저 알아서 찾아줘!) |
 | `gleam run -m glendix/marketplace` | Marketplace에서 위젯 검색하고 다운받기! (인터랙티브!) |
+| `gleam run -m glendix/define` | 위젯 프로퍼티 정의를 TUI로 편집! (그룹, 타입, 열거형 — 터미널에서 다 돼!) |
 | `gleam run -m glendix/build` | 프로덕션 빌드! (.mpk 파일 만들어줘!) |
 | `gleam run -m glendix/dev` | 개발 서버! (HMR이라서 port 3000에서 고치면 바로 반영돼! 짱이지?) |
 | `gleam run -m glendix/start` | Mendix 테스트 프로젝트 연결! |
@@ -467,6 +469,11 @@ glendix/
   classic_ffi.mjs           ← Classic 위젯 JS 도우미 (install하면 새로 만들어져!)
   marketplace.gleam         ← Marketplace 위젯 검색하고 다운받기!
   marketplace_ffi.mjs       ← Content API + Playwright + S3 다운로드 JS 도우미
+  define.gleam              ← 위젯 프로퍼티 정의 TUI 에디터!
+  define_ffi.mjs            ← 터미널 입출력 + 파일 읽기/쓰기 JS 도우미
+  define/
+    types.gleam             ← Property, PropertyGroup, WidgetMeta 타입 정의
+    ui.gleam                ← TUI 렌더링 도우미 (입력 필드, 레이아웃)
   cmd.gleam                 ← 쉘 명령어 실행 + PM 감지 + 바인딩 생성
   cmd_ffi.mjs               ← Node.js child_process + fs + ZIP 파싱 + 바인딩 생성 + 위젯 .gleam 파일 생성
   build.gleam               ← 빌드 스크립트

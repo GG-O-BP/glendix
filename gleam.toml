@@ -1,5 +1,5 @@
 name = "glendix"
-version = "2.0.17"
+version = "2.0.18"
 target = "javascript"
 description = "Gleam bindings for Mendix Pluggable Widget API + React"
 licences = ["BlueOak-1.0.0"]

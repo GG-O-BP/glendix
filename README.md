@@ -85,6 +85,7 @@ pub fn widget(props: JsProps) -> ReactElement {
 | `glendix/widget` | For using `.mpk` widgets from the `widgets/` folder as React components — brilliant! |
 | `glendix/classic` | Classic (Dojo) widget wrapper — `classic.render(widget_id, properties)` — for the older widgets |
 | `glendix/marketplace` | Search and download widgets from the Mendix Marketplace — `gleam run -m glendix/marketplace` |
+| `glendix/define` | Interactive TUI editor for widget property definitions — add groups, set types, manage enums, all from the terminal! |
 
 ### Mendix Bits
 
@@ -396,6 +397,7 @@ glendix comes with built-in scripts — no extra files needed! Just use `gleam r
 |---------|-------------|
 | `gleam run -m glendix/install` | Installs everything + makes bindings + generates widget files (works out your package manager by itself!) |
 | `gleam run -m glendix/marketplace` | Searches and downloads widgets from the Marketplace (interactive!) |
+| `gleam run -m glendix/define` | Interactive TUI editor for widget property definitions (groups, types, enums — all from the terminal!) |
 | `gleam run -m glendix/build` | Makes a production build (.mpk file) |
 | `gleam run -m glendix/dev` | Starts a dev server (with HMR on port 3000 — changes show up instantly!) |
 | `gleam run -m glendix/start` | Connects to a Mendix test project |
@@ -466,6 +468,11 @@ glendix/
   classic_ffi.mjs           ← Classic widget JS helper (gets remade on install)
   marketplace.gleam         ← Marketplace search and download
   marketplace_ffi.mjs       ← Content API + Playwright + S3 download helper
+  define.gleam              ← Widget property definition TUI editor
+  define_ffi.mjs            ← Terminal I/O + file read/write helper
+  define/
+    types.gleam             ← Property, PropertyGroup, WidgetMeta types
+    ui.gleam                ← TUI rendering helpers (edit fields, layouts)
   cmd.gleam                 ← Shell commands + PM detection + binding generation
   cmd_ffi.mjs               ← Node.js child_process + fs + ZIP + binding + widget .gleam generation
   build.gleam               ← Build script

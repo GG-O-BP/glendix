@@ -2382,6 +2382,40 @@ hook.use_effect_once_cleanup(fn() {
 
 ---
 
+## 위젯 프로퍼티 정의 (TUI 에디터)
+
+`gleam run -m glendix/define`을 실행하면 터미널에서 위젯의 프로퍼티 정의를 인터랙티브하게 편집할 수 있습니다.
+
+### 기능
+
+- **프로퍼티 그룹 관리**: 그룹 추가/삭제/이름 변경
+- **프로퍼티 편집**: key, type, caption, description, required 등 모든 필드를 TUI에서 편집
+- **타입 선택**: Mendix가 지원하는 모든 프로퍼티 타입(string, boolean, integer, enumeration, object, action 등) 중 선택
+- **열거형(Enum) 관리**: 열거형 타입의 key/caption 값 추가/삭제/편집
+- **위젯 메타 편집**: 위젯 이름, 설명, Studio Pro 카테고리 등 메타 정보 편집
+- **시스템 프로퍼티**: Mendix 시스템 프로퍼티(Label, Name, TabIndex, Visibility, Editability) 토글
+- **XML 자동 생성**: 편집 결과를 Mendix Pluggable Widget XML 형식으로 저장
+
+### 사용법
+
+```bash
+gleam run -m glendix/define
+```
+
+TUI가 실행되면 방향키, Enter, Escape, Tab 등으로 탐색하고 편집합니다:
+
+- **방향키(↑↓)**: 트리 뷰에서 그룹/프로퍼티 탐색
+- **Enter**: 선택한 항목 편집 또는 확인
+- **Escape**: 이전 화면으로 돌아가기
+- **a**: 새 프로퍼티 추가
+- **g**: 새 그룹 추가
+- **d**: 선택한 항목 삭제 (확인 프롬프트)
+- **m**: 위젯 메타 정보 편집
+- **s**: 시스템 프로퍼티 편집
+- **Ctrl+C / q**: 종료 (저장 확인)
+
+---
+
 ## 7. 트러블슈팅
 
 ### 빌드 에러
