@@ -10,7 +10,7 @@ import glendix/define/types.{
   SysPropItem, SystemProperty,
 }
 import glendix/define/ui.{
-  type EditField, BoolField, ListField, ReadOnlyField, TextField,
+  type EditField, BoolField, ListField, SelectField, TextField,
 }
 import gleam/int
 import gleam/io
@@ -66,7 +66,7 @@ type InputTarget {
   PropertyKeyInput
   EditFieldInput(field_index: Int)
   EnumKeyInput(enum_index: Int)
-  EnumCaptionInput(enum_index: Int)
+  EnumCaptionInput(enum_index: Int, new_key: String)
   NewEnumKeyInput
   NewEnumCaptionInput(key: String)
 }
@@ -98,6 +98,13 @@ type ViewMode {
     edit_buf_cursor: Int,
   )
   SelectSystemProp(cursor: Int, options: List(String))
+  SelectTypeForEdit(cursor: Int)
+  EditMultiSelect(
+    field_label: String,
+    options: List(String),
+    selected: List(String),
+    cursor: Int,
+  )
   ConfirmDelete(target_label: String, group_idx: Int, item_idx: Option(Int))
   ConfirmQuit
 }
@@ -204,7 +211,7 @@ fn render(state: DefineState) -> Nil {
         PropertyKeyInput -> "속성 Key 입력"
         EditFieldInput(_) -> "값 입력"
         EnumKeyInput(_) -> "열거형 Key 입력"
-        EnumCaptionInput(_) -> "열거형 Caption 입력"
+        EnumCaptionInput(_, _) -> "열거형 Caption 입력"
         NewEnumKeyInput -> "새 열거형 Key"
         NewEnumCaptionInput(_) -> "새 열거형 Caption"
       }
@@ -212,11 +219,11 @@ fn render(state: DefineState) -> Nil {
     }
     EditProperty(_, fields, cursor, editing, edit_buffer, edit_buf_cursor) -> {
       let prop_key = case fields {
-        [ReadOnlyField(_, k), ..] -> k
+        [TextField(_, k), ..] -> k
         _ -> "?"
       }
       let prop_type = case fields {
-        [_, ReadOnlyField(_, t), ..] -> t
+        [_, SelectField(_, t), ..] -> t
         _ -> "?"
       }
       ui.render_edit_screen(
@@ -243,6 +250,16 @@ fn render(state: DefineState) -> Nil {
       ui.render_enum_edit_screen(values, cursor, state.status_msg)
     SelectSystemProp(cursor, options) ->
       ui.render_sys_prop_screen(options, cursor)
+    SelectTypeForEdit(cursor) -> ui.render_type_select_screen(cursor)
+    EditMultiSelect(label, options, selected, cursor) -> {
+      let title = case label {
+        "AttrTypes:" -> "속성 타입 선택"
+        "AssocTypes:" -> "연관 타입 선택"
+        "SelTypes:" -> "선택 타입 선택"
+        _ -> "항목 선택"
+      }
+      ui.render_multi_select_screen(title, options, selected, cursor)
+    }
     ConfirmDelete(label, _, _) ->
       ui.render_confirm_delete_screen(label)
     ConfirmQuit -> ui.render_confirm_quit_screen()
@@ -339,6 +356,8 @@ fn tui_loop(state: DefineState) -> Promise(DefineState) {
         EditMeta(_, _, _, _, _, _) -> handle_meta_key(state, key)
         EditEnum(_, _) -> handle_enum_key(state, key)
         SelectSystemProp(_, _) -> handle_sys_prop_key(state, key)
+        SelectTypeForEdit(_) -> handle_type_edit_key(state, key)
+        EditMultiSelect(_, _, _, _) -> handle_multi_select_key(state, key)
         ConfirmDelete(_, _, _) -> handle_delete_confirm_key(state, key)
         ConfirmQuit -> handle_quit_confirm_key(state, key)
       }
@@ -600,7 +619,8 @@ fn handle_input_key(
       case key {
         KeyCtrlC | KeyEscape ->
           case target {
-            NewEnumCaptionInput(_) | NewEnumKeyInput ->
+            NewEnumCaptionInput(_) | NewEnumKeyInput
+            | EnumCaptionInput(_, _) | EnumKeyInput(_) ->
               tui_loop(restore_enum_view(state))
             _ ->
               tui_loop(DefineState(..state, view_mode: TreeView))
@@ -619,15 +639,15 @@ fn handle_input_key(
                 DefineState(
                   ..state,
                   view_mode: InputText(
-                    EnumCaptionInput(ei),
+                    EnumCaptionInput(ei, buffer),
                     cap,
                     cap_len,
                   ),
                 ),
               )
             }
-            EnumCaptionInput(ei) ->
-              tui_loop(apply_enum_edit(state, ei, buffer))
+            EnumCaptionInput(ei, new_key) ->
+              tui_loop(apply_enum_edit(state, ei, new_key, buffer))
             NewEnumKeyInput ->
               tui_loop(
                 DefineState(
@@ -871,19 +891,102 @@ fn handle_edit_key(
                       ),
                     ),
                   )
-                Ok(ListField(label, _)) ->
+                Ok(SelectField(label, _)) ->
+                  case label {
+                    "Type:" -> {
+                      // 현재 필드 편집 내용 저장 후 타입 선택 진입
+                      let current_prop =
+                        ui.fields_to_property(original, fields)
+                      let new_groups =
+                        update_property(
+                          state.groups,
+                          state.edit_group_idx,
+                          state.edit_item_idx,
+                          current_prop,
+                        )
+                      let type_cursor =
+                        types.type_index(current_prop.type_)
+                      tui_loop(
+                        DefineState(
+                          ..state,
+                          groups: new_groups,
+                          dirty: state.dirty
+                            || current_prop != original,
+                          view_mode: SelectTypeForEdit(type_cursor),
+                        ),
+                      )
+                    }
+                    _ -> tui_loop(state)
+                  }
+                Ok(ListField(label, _)) -> {
+                  // 서브에디터 진입 전 현재 필드 편집 내용 저장
+                  let current_prop =
+                    ui.fields_to_property(original, fields)
+                  let new_groups =
+                    update_property(
+                      state.groups,
+                      state.edit_group_idx,
+                      state.edit_item_idx,
+                      current_prop,
+                    )
+                  let has_changes = current_prop != original
                   case label {
                     "EnumValues:" ->
                       tui_loop(
                         DefineState(
                           ..state,
+                          groups: new_groups,
+                          dirty: state.dirty || has_changes,
                           view_mode: EditEnum(
-                            original.enumeration_values, 0,
+                            current_prop.enumeration_values, 0,
+                          ),
+                        ),
+                      )
+                    "AttrTypes:" ->
+                      tui_loop(
+                        DefineState(
+                          ..state,
+                          groups: new_groups,
+                          dirty: state.dirty || has_changes,
+                          view_mode: EditMultiSelect(
+                            "AttrTypes:",
+                            types.all_attribute_types(),
+                            current_prop.attribute_types,
+                            0,
+                          ),
+                        ),
+                      )
+                    "AssocTypes:" ->
+                      tui_loop(
+                        DefineState(
+                          ..state,
+                          groups: new_groups,
+                          dirty: state.dirty || has_changes,
+                          view_mode: EditMultiSelect(
+                            "AssocTypes:",
+                            types.all_association_types(),
+                            current_prop.association_types,
+                            0,
+                          ),
+                        ),
+                      )
+                    "SelTypes:" ->
+                      tui_loop(
+                        DefineState(
+                          ..state,
+                          groups: new_groups,
+                          dirty: state.dirty || has_changes,
+                          view_mode: EditMultiSelect(
+                            "SelTypes:",
+                            types.all_selection_types(),
+                            current_prop.selection_types,
+                            0,
                           ),
                         ),
                       )
                     _ -> tui_loop(state)
                   }
+                }
                 _ -> tui_loop(state)
               }
             }
@@ -1454,33 +1557,21 @@ fn get_enum_caption(state: DefineState, index: Int) -> String {
 fn apply_enum_edit(
   state: DefineState,
   index: Int,
+  new_key: String,
   caption: String,
 ) -> DefineState {
-  case state.view_mode {
-    InputText(EnumCaptionInput(_), _, _) -> {
-      // EnumKeyInput에서 입력받은 key를 가져와야 함
-      // 현재 흐름: EnumKeyInput → Enter → EnumCaptionInput으로 전환
-      // EnumKeyInput에서 buffer가 key였으므로, 여기서는 직접 접근 불가
-      // 우회: state에서 enum values 찾기
-      let values = get_current_enum_values(state)
-      let new_key = case list.drop(values, index) |> list.first {
-        Ok(ev) -> ev.key
-        Error(_) -> ""
+  let values = get_current_enum_values(state)
+  let new_values =
+    list.index_map(values, fn(v, i) {
+      case i == index {
+        True -> EnumValue(new_key, caption)
+        False -> v
       }
-      let new_values =
-        list.index_map(values, fn(v, i) {
-          case i == index {
-            True -> EnumValue(new_key, caption)
-            False -> v
-          }
-        })
-      DefineState(
-        ..state,
-        view_mode: EditEnum(new_values, index),
-      )
-    }
-    _ -> DefineState(..state, view_mode: TreeView)
-  }
+    })
+  DefineState(
+    ..state,
+    view_mode: EditEnum(new_values, index),
+  )
 }
 
 fn apply_new_enum(
@@ -1672,6 +1763,192 @@ fn get_property(
         _ -> None
       }
     Error(_) -> None
+  }
+}
+
+// ── 타입 변경 선택 키 처리 ──
+
+fn handle_type_edit_key(
+  state: DefineState,
+  key: KeyInput,
+) -> Promise(DefineState) {
+  case state.view_mode {
+    SelectTypeForEdit(cursor) ->
+      case key {
+        KeyCtrlC | KeyEscape -> {
+          // 취소 — EditProperty 복원
+          let prop =
+            get_property(
+              state.groups,
+              state.edit_group_idx,
+              state.edit_item_idx,
+            )
+          case prop {
+            Some(p) -> {
+              let fields = ui.property_to_fields(p)
+              tui_loop(
+                DefineState(
+                  ..state,
+                  view_mode: EditProperty(
+                    p, fields, 0, False, "", 0,
+                  ),
+                ),
+              )
+            }
+            None ->
+              tui_loop(DefineState(..state, view_mode: TreeView))
+          }
+        }
+        KeyUp -> {
+          let new_c = int.max(0, cursor - 1)
+          tui_loop(
+            DefineState(
+              ..state,
+              view_mode: SelectTypeForEdit(new_c),
+            ),
+          )
+        }
+        KeyDown -> {
+          let max = list.length(types.all_types()) - 1
+          let new_c = int.min(max, cursor + 1)
+          tui_loop(
+            DefineState(
+              ..state,
+              view_mode: SelectTypeForEdit(new_c),
+            ),
+          )
+        }
+        KeyEnter -> {
+          case list.drop(types.all_types(), cursor) |> list.first {
+            Ok(new_type) -> {
+              let gi = state.edit_group_idx
+              let ii = state.edit_item_idx
+              case get_property(state.groups, gi, ii) {
+                Some(prop) -> {
+                  let new_prop =
+                    types.change_property_type(prop, new_type)
+                  let new_groups =
+                    update_property(state.groups, gi, ii, new_prop)
+                  let new_fields = ui.property_to_fields(new_prop)
+                  tui_loop(
+                    DefineState(
+                      ..state,
+                      groups: new_groups,
+                      dirty: True,
+                      view_mode: EditProperty(
+                        new_prop, new_fields, 0, False, "", 0,
+                      ),
+                    ),
+                  )
+                }
+                None ->
+                  tui_loop(
+                    DefineState(..state, view_mode: TreeView),
+                  )
+              }
+            }
+            Error(_) -> tui_loop(state)
+          }
+        }
+        _ -> tui_loop(state)
+      }
+    _ -> tui_loop(state)
+  }
+}
+
+// ── 멀티선택 키 처리 ──
+
+fn handle_multi_select_key(
+  state: DefineState,
+  key: KeyInput,
+) -> Promise(DefineState) {
+  case state.view_mode {
+    EditMultiSelect(label, options, selected, cursor) ->
+      case key {
+        KeyEscape | KeyCtrlC -> {
+          // 선택 완료 — 속성에 반영
+          tui_loop(return_from_multi_select(state, label, selected))
+        }
+        KeyUp -> {
+          let new_c = int.max(0, cursor - 1)
+          tui_loop(
+            DefineState(
+              ..state,
+              view_mode: EditMultiSelect(
+                label, options, selected, new_c,
+              ),
+            ),
+          )
+        }
+        KeyDown -> {
+          let max = int.max(0, list.length(options) - 1)
+          let new_c = int.min(max, cursor + 1)
+          tui_loop(
+            DefineState(
+              ..state,
+              view_mode: EditMultiSelect(
+                label, options, selected, new_c,
+              ),
+            ),
+          )
+        }
+        KeyEnter -> {
+          // 선택 토글
+          case list.drop(options, cursor) |> list.first {
+            Ok(opt) -> {
+              let new_selected = case list.contains(selected, opt) {
+                True -> list.filter(selected, fn(s) { s != opt })
+                False -> list.append(selected, [opt])
+              }
+              tui_loop(
+                DefineState(
+                  ..state,
+                  view_mode: EditMultiSelect(
+                    label, options, new_selected, cursor,
+                  ),
+                ),
+              )
+            }
+            Error(_) -> tui_loop(state)
+          }
+        }
+        _ -> tui_loop(state)
+      }
+    _ -> tui_loop(state)
+  }
+}
+
+fn return_from_multi_select(
+  state: DefineState,
+  field_label: String,
+  selected: List(String),
+) -> DefineState {
+  let gi = state.edit_group_idx
+  let ii = state.edit_item_idx
+  case get_property(state.groups, gi, ii) {
+    Some(prop) -> {
+      let new_prop = case field_label {
+        "AttrTypes:" ->
+          Property(..prop, attribute_types: selected)
+        "AssocTypes:" ->
+          Property(..prop, association_types: selected)
+        "SelTypes:" ->
+          Property(..prop, selection_types: selected)
+        _ -> prop
+      }
+      let new_groups =
+        update_property(state.groups, gi, ii, new_prop)
+      let new_fields = ui.property_to_fields(new_prop)
+      DefineState(
+        ..state,
+        groups: new_groups,
+        dirty: True,
+        view_mode: EditProperty(
+          new_prop, new_fields, 0, False, "", 0,
+        ),
+      )
+    }
+    None -> DefineState(..state, view_mode: TreeView)
   }
 }
 

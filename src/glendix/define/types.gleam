@@ -95,6 +95,7 @@ pub type Property {
     association_types: List(String),
     selection_types: List(String),
     default_type: Option(String),
+    selectable_objects: Option(String),
     sub_properties: List(PropertyGroup),
   )
 }
@@ -207,6 +208,7 @@ pub fn default_property(key: String, t: PropertyType) -> Property {
     association_types: [],
     selection_types: [],
     default_type: option.None,
+    selectable_objects: option.None,
     sub_properties: [],
   )
 }
@@ -224,4 +226,51 @@ pub fn all_types() -> List(PropertyType) {
 /// 시스템 속성 키 목록
 pub fn all_system_keys() -> List(String) {
   ["Label", "Name", "TabIndex", "Visibility", "Editability"]
+}
+
+/// 속성의 타입을 변경한다 (key, caption, description 보존, 나머지 기본값)
+pub fn change_property_type(prop: Property, new_type: PropertyType) -> Property {
+  let d = default_property(prop.key, new_type)
+  Property(..d, caption: prop.caption, description: prop.description)
+}
+
+/// PropertyType의 인덱스 (all_types 목록에서의 위치)
+pub fn type_index(t: PropertyType) -> Int {
+  case t {
+    TypeString -> 0
+    TypeBoolean -> 1
+    TypeInteger -> 2
+    TypeDecimal -> 3
+    TypeEnumeration -> 4
+    TypeIcon -> 5
+    TypeImage -> 6
+    TypeWidgets -> 7
+    TypeFile -> 8
+    TypeExpression -> 9
+    TypeTextTemplate -> 10
+    TypeAction -> 11
+    TypeAttribute -> 12
+    TypeAssociation -> 13
+    TypeObject -> 14
+    TypeDatasource -> 15
+    TypeSelection -> 16
+  }
+}
+
+/// 속성 바인딩에 사용 가능한 타입 목록
+pub fn all_attribute_types() -> List(String) {
+  [
+    "AutoNumber", "Binary", "Boolean", "DateTime", "Enum",
+    "HashString", "Integer", "Long", "String", "Decimal",
+  ]
+}
+
+/// 연관에 사용 가능한 타입 목록
+pub fn all_association_types() -> List(String) {
+  ["Reference", "ReferenceSet"]
+}
+
+/// 선택에 사용 가능한 타입 목록
+pub fn all_selection_types() -> List(String) {
+  ["None", "Single", "Multi"]
 }

@@ -3,7 +3,8 @@
 import etch/style
 import glendix/define/types.{
   type EnumValue, type Property, type PropertyGroup, type PropertyItem,
-  type WidgetMeta, PropItem, Property, SysPropItem, WidgetMeta,
+  type WidgetMeta, PropItem, Property, ReturnType,
+  SysPropItem, WidgetMeta,
 }
 import gleam/int
 import gleam/list
@@ -17,6 +18,7 @@ pub type EditField {
   BoolField(label: String, value: Bool)
   ReadOnlyField(label: String, value: String)
   ListField(label: String, count: Int)
+  SelectField(label: String, value: String)
 }
 
 // ── 트리뷰 화면 ──
@@ -354,6 +356,18 @@ pub fn render_edit_screen(
             True -> " " <> style.dim("Enter 편집")
             False -> ""
           }
+
+        SelectField(label, value) -> {
+          let display = case is_cur {
+            True -> style.bold(style.cyan(value))
+            False -> style.cyan(value)
+          }
+          let hint = case is_cur {
+            True -> " " <> style.dim("Enter 변경")
+            False -> ""
+          }
+          marker <> label |> pad_right(16) <> display <> hint
+        }
       }
     })
     |> string.join("\n")
@@ -499,114 +513,148 @@ pub fn render_confirm_quit_screen() -> String {
 // ── 속성을 편집 폼 필드로 변환 ──
 
 /// Property를 편집 가능한 필드 목록으로 변환한다.
+/// 타입별 관련 필드를 모두 표시한다.
 pub fn property_to_fields(prop: Property) -> List(EditField) {
   let base = [
-    ReadOnlyField("Key:", prop.key),
-    ReadOnlyField("Type:", types.type_to_string(prop.type_)),
+    TextField("Key:", prop.key),
+    SelectField("Type:", types.type_to_string(prop.type_)),
     TextField("Caption:", prop.caption),
     TextField("Description:", prop.description),
   ]
 
-  let req_field = case prop.required {
-    Some(v) -> [BoolField("Required:", v)]
-    None -> []
-  }
-
-  let default_field = case prop.default_value {
-    Some(v) -> [TextField("Default:", v)]
-    None -> []
-  }
-
-  let multiline_field = case prop.multiline {
-    Some(v) -> [BoolField("Multiline:", v)]
-    None -> []
-  }
-
-  let is_list_field = case prop.is_list {
-    Some(v) -> [BoolField("IsList:", v)]
-    None -> []
-  }
-
-  let data_source_field = case prop.data_source {
-    Some(v) -> [TextField("DataSource:", v)]
-    None -> []
-  }
-
-  let allow_upload_field = case prop.allow_upload {
-    Some(v) -> [BoolField("AllowUpload:", v)]
-    None -> []
-  }
-
-  let on_change_field = case prop.on_change {
-    Some(v) -> [TextField("OnChange:", v)]
-    None -> []
-  }
-
-  let set_label_field = case prop.set_label {
-    Some(v) -> [BoolField("SetLabel:", v)]
-    None -> []
-  }
-
-  let enum_field = case prop.type_ {
+  let type_fields = case prop.type_ {
+    types.TypeString -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      TextField("Default:", option.unwrap(prop.default_value, "")),
+      BoolField("Multiline:", option.unwrap(prop.multiline, False)),
+    ]
+    types.TypeBoolean -> [
+      TextField("Default:", option.unwrap(prop.default_value, "false")),
+    ]
+    types.TypeInteger -> [
+      TextField("Default:", option.unwrap(prop.default_value, "0")),
+    ]
+    types.TypeDecimal -> [
+      TextField("Default:", option.unwrap(prop.default_value, "0")),
+    ]
     types.TypeEnumeration -> [
+      TextField("Default:", option.unwrap(prop.default_value, "")),
       ListField("EnumValues:", list.length(prop.enumeration_values)),
     ]
-    _ -> []
+    types.TypeIcon -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+    ]
+    types.TypeImage -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      BoolField("AllowUpload:", option.unwrap(prop.allow_upload, False)),
+    ]
+    types.TypeWidgets -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+    ]
+    types.TypeFile -> [
+      BoolField("AllowUpload:", option.unwrap(prop.allow_upload, False)),
+    ]
+    types.TypeExpression -> {
+      let rt_type = case prop.return_type {
+        Some(rt) -> rt.type_name
+        None -> ""
+      }
+      let rt_assign = case prop.return_type {
+        Some(rt) -> option.unwrap(rt.assignable_to, "")
+        None -> ""
+      }
+      [
+        BoolField("Required:", option.unwrap(prop.required, True)),
+        TextField("Default:", option.unwrap(prop.default_value, "")),
+        TextField("DataSource:", option.unwrap(prop.data_source, "")),
+        TextField("ReturnType:", rt_type),
+        TextField("AssignableTo:", rt_assign),
+      ]
+    }
+    types.TypeTextTemplate -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      BoolField("Multiline:", option.unwrap(prop.multiline, False)),
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+    ]
+    types.TypeAction -> [
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+      TextField("Default:", option.unwrap(prop.default_value, "")),
+      TextField("DefaultType:", option.unwrap(prop.default_type, "")),
+    ]
+    types.TypeAttribute -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      TextField("OnChange:", option.unwrap(prop.on_change, "")),
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+      BoolField("SetLabel:", option.unwrap(prop.set_label, False)),
+      ListField("AttrTypes:", list.length(prop.attribute_types)),
+    ]
+    types.TypeAssociation -> [
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      TextField("SelectObjs:", option.unwrap(prop.selectable_objects, "")),
+      TextField("OnChange:", option.unwrap(prop.on_change, "")),
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+      BoolField("SetLabel:", option.unwrap(prop.set_label, False)),
+      ListField("AssocTypes:", list.length(prop.association_types)),
+    ]
+    types.TypeObject -> [
+      BoolField("IsList:", option.unwrap(prop.is_list, True)),
+      BoolField("Required:", option.unwrap(prop.required, True)),
+    ]
+    types.TypeDatasource -> [
+      BoolField("IsList:", option.unwrap(prop.is_list, True)),
+      BoolField("Required:", option.unwrap(prop.required, True)),
+      TextField("DefaultType:", option.unwrap(prop.default_type, "")),
+      TextField("Default:", option.unwrap(prop.default_value, "")),
+    ]
+    types.TypeSelection -> [
+      TextField("DataSource:", option.unwrap(prop.data_source, "")),
+      TextField("Default:", option.unwrap(prop.default_value, "")),
+      TextField("OnChange:", option.unwrap(prop.on_change, "")),
+      ListField("SelTypes:", list.length(prop.selection_types)),
+    ]
   }
 
-  let attr_types_field = case prop.attribute_types {
-    [] -> []
-    items -> [ListField("AttrTypes:", list.length(items))]
-  }
-
-  list.flatten([
-    base,
-    req_field,
-    default_field,
-    multiline_field,
-    is_list_field,
-    data_source_field,
-    allow_upload_field,
-    on_change_field,
-    set_label_field,
-    enum_field,
-    attr_types_field,
-  ])
+  list.append(base, type_fields)
 }
 
 /// 편집 폼 필드에서 Property를 재구성한다.
+/// 폼에 표시된 모든 필드를 추출하며, 빈 텍스트 필드는 None으로 변환한다.
 pub fn fields_to_property(
   original: Property,
   fields: List(EditField),
 ) -> Property {
+  let key = find_text_field(fields, "Key:", original.key)
   let caption = find_text_field(fields, "Caption:", original.caption)
   let description =
     find_text_field(fields, "Description:", original.description)
-  let default_value = case original.default_value {
-    Some(_) ->
-      Some(find_text_field(fields, "Default:", ""))
-    None -> None
-  }
-  let required = find_bool_update(fields, "Required:", original.required)
-  let multiline = find_bool_update(fields, "Multiline:", original.multiline)
-  let is_list = find_bool_update(fields, "IsList:", original.is_list)
-  let allow_upload =
-    find_bool_update(fields, "AllowUpload:", original.allow_upload)
-  let set_label =
-    find_bool_update(fields, "SetLabel:", original.set_label)
-  let data_source = case original.data_source {
-    Some(_) ->
-      Some(find_text_field(fields, "DataSource:", ""))
-    None -> None
-  }
-  let on_change = case original.on_change {
-    Some(_) ->
-      Some(find_text_field(fields, "OnChange:", ""))
+
+  // Bool 필드 — 폼에 존재하면 Some(값), 없으면 None
+  let required = find_bool_field(fields, "Required:")
+  let multiline = find_bool_field(fields, "Multiline:")
+  let is_list = find_bool_field(fields, "IsList:")
+  let allow_upload = find_bool_field(fields, "AllowUpload:")
+  let set_label = find_bool_field(fields, "SetLabel:")
+
+  // 텍스트 필드 — 빈 문자열이면 None
+  let default_value = find_optional_text(fields, "Default:")
+  let data_source = find_optional_text(fields, "DataSource:")
+  let on_change = find_optional_text(fields, "OnChange:")
+  let default_type = find_optional_text(fields, "DefaultType:")
+  let selectable_objects = find_optional_text(fields, "SelectObjs:")
+
+  // ReturnType — ReturnType 필드가 있고 값이 있으면 Some
+  let return_type = case find_optional_text(fields, "ReturnType:") {
+    Some(type_name) -> {
+      let assignable_to = find_optional_text(fields, "AssignableTo:")
+      Some(ReturnType(type_name, assignable_to))
+    }
     None -> None
   }
 
   Property(
-    ..original,
+    key: key,
+    type_: original.type_,
     caption: caption,
     description: description,
     required: required,
@@ -617,6 +665,14 @@ pub fn fields_to_property(
     allow_upload: allow_upload,
     on_change: on_change,
     set_label: set_label,
+    return_type: return_type,
+    enumeration_values: original.enumeration_values,
+    attribute_types: original.attribute_types,
+    association_types: original.association_types,
+    selection_types: original.selection_types,
+    default_type: default_type,
+    selectable_objects: selectable_objects,
+    sub_properties: original.sub_properties,
   )
 }
 
@@ -706,18 +762,25 @@ fn find_text_field(
   }
 }
 
-fn find_bool_update(
+/// 텍스트 필드를 Option으로 찾는다 — 빈 문자열이면 None
+fn find_optional_text(
   fields: List(EditField),
   label: String,
-  original: Option(Bool),
-) -> Option(Bool) {
-  case original {
-    None -> None
-    Some(_) ->
-      case find_bool_field(fields, label) {
-        Some(v) -> Some(v)
-        None -> original
-      }
+) -> Option(String) {
+  case find_text_field_opt(fields, label) {
+    Some("") -> None
+    other -> other
+  }
+}
+
+fn find_text_field_opt(
+  fields: List(EditField),
+  label: String,
+) -> Option(String) {
+  case fields {
+    [] -> None
+    [TextField(l, v), ..] if l == label -> Some(v)
+    [_, ..rest] -> find_text_field_opt(rest, label)
   }
 }
 
@@ -730,4 +793,46 @@ fn find_bool_field(
     [BoolField(l, v), ..] if l == label -> Some(v)
     [_, ..rest] -> find_bool_field(rest, label)
   }
+}
+
+// ── 멀티선택 화면 ──
+
+/// 멀티선택 화면을 문자열로 생성한다.
+pub fn render_multi_select_screen(
+  title: String,
+  options: List(String),
+  selected: List(String),
+  cursor: Int,
+) -> String {
+  let header =
+    "  " <> style.bold(style.cyan("── " <> title <> " ──"))
+
+  let body =
+    options
+    |> list.index_map(fn(opt, idx) {
+      let is_cur = idx == cursor
+      let is_selected = list.contains(selected, opt)
+      let marker = case is_cur {
+        True -> style.cyan("  ▸ ")
+        False -> "    "
+      }
+      let check = case is_selected {
+        True -> style.green("[*] ")
+        False -> style.dim("[ ] ")
+      }
+      let name = case is_cur {
+        True -> style.bold(style.cyan(opt))
+        False -> opt
+      }
+      marker <> check <> name
+    })
+    |> string.join("\n")
+
+  let help =
+    "\n  "
+    <> style.dim(
+      "↑↓ 이동 · Enter 토글 · Esc 완료",
+    )
+
+  header <> "\n\n" <> body <> "\n" <> help <> "\n"
 }

@@ -206,6 +206,7 @@ function parseProp(el) {
     return_type,
     toList(enums), toList(attrTypes), toList(assocTypes), toList(selTypes),
     opt("defaultType"),
+    opt("selectableObjects"),
     toList(subGroups),
   );
 }
@@ -309,6 +310,7 @@ function serializeProperty(prop, indent) {
   if (prop.on_change instanceof Some) attrs.push(`onChange="${escXml(prop.on_change[0])}"`);
   if (prop.set_label instanceof Some) attrs.push(`setLabel="${prop.set_label[0]}"`);
   if (prop.default_type instanceof Some) attrs.push(`defaultType="${escXml(prop.default_type[0])}"`);
+  if (prop.selectable_objects instanceof Some) attrs.push(`selectableObjects="${escXml(prop.selectable_objects[0])}"`);
 
   const children = [];
   children.push(`${i2}<caption>${escXml(prop.caption)}</caption>`);
