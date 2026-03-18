@@ -49,7 +49,7 @@ Pop this into your `gleam.toml`:
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 3.0.0 and < 4.0.0"
+glendix = ">= 3.0.2 and < 4.0.0"
 ```
 
 ### Peer Dependencies

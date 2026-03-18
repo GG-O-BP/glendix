@@ -50,7 +50,7 @@ v3.0은 진짜 엄청나게 바뀌었어! `glendix/react` 레이어를 통째로
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 3.0.0 and < 4.0.0"
+glendix = ">= 3.0.2 and < 4.0.0"
 ```
 
 ### 같이 필요한 것들
