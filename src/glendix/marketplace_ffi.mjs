@@ -105,7 +105,7 @@ export function load_first_batch(pat) {
   const items = data.items || [];
   if (items.length === 0) return [toList([]), 0, true];
 
-  const widgets = items.filter((item) => item.type === "Widget");
+  const widgets = items.filter((item) => item.type === "Widget" || item.type === "Module");
   const nextOffset = FETCH_SIZE;
   const allDone = items.length < FETCH_SIZE;
   return [toList(widgets), nextOffset, allDone];
@@ -145,7 +145,7 @@ export function spawn_loader(pat, offset, widgetsJson) {
     '    break;',
     '  }',
     '  for (const item of data.items) {',
-    '    if (item.type === "Widget") widgets.push(item);',
+    '    if (item.type === "Widget" || item.type === "Module") widgets.push(item);',
     '  }',
     '  offset += FETCH_SIZE;',
     '  const done = data.items.length < FETCH_SIZE;',

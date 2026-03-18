@@ -1096,7 +1096,7 @@ fn get_first_non_empty(lists: List(List(t))) -> List(t) {
 
 The `if` keyword can be used with case expressions to add a _guard_ to a pattern. A guard is an expression that must evaluate to `True` for the pattern to match.
 
-Guard expressions _cannot_ contain function calls, case expressions, or blocks.
+Guard expressions can use operators including comparison operators, `||`, `&&`, and the string concatenation operator `<>`. They _cannot_ contain function calls, case expressions, or blocks.
 
 ```gleam
 pub fn main() {
@@ -1110,6 +1110,22 @@ fn get_first_larger(numbers: List(Int), limit: Int) -> Int {
     [first, ..] if first > limit -> first
     [_, ..rest] -> get_first_larger(rest, limit)
     [] -> 0
+  }
+}
+```
+
+The `<>` operator can be used in guards to compare concatenated strings.
+
+```gleam
+pub fn main() {
+  echo check_greeting("Alice", "Hello, Alice!")
+  echo check_greeting("Alice", "Hello, Bob!")
+}
+
+fn check_greeting(name: String, message: String) -> Bool {
+  case message {
+    msg if msg == "Hello, " <> name <> "!" -> True
+    _ -> False
   }
 }
 ```
