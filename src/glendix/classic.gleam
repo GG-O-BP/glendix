@@ -12,7 +12,7 @@
 //// ```
 
 import gleam/dynamic.{type Dynamic}
-import glendix/react.{type ReactElement}
+import redraw.{type Element}
 
 /// 임의의 값을 Dynamic으로 변환한다 (JS 타겟에서는 identity)
 @external(javascript, "./classic_ffi.mjs", "to_dynamic")
@@ -24,7 +24,7 @@ pub fn to_dynamic(value: a) -> Dynamic
 pub fn render(
   widget_id: String,
   properties: List(#(String, Dynamic)),
-) -> ReactElement
+) -> Element
 
 /// CSS 클래스를 지정하여 렌더링
 @external(javascript, "./classic_ffi.mjs", "classic_widget_element_with_class")
@@ -32,4 +32,4 @@ pub fn render_with_class(
   widget_id: String,
   properties: List(#(String, Dynamic)),
   class_name: String,
-) -> ReactElement
+) -> Element

@@ -222,6 +222,29 @@ function parseProperties(widgetXml) {
   return properties;
 }
 
+// default export가 존재하는지 판별한다
+function hasDefaultExport(src) {
+  return /\bexport\s+default\b/.test(src) ||
+    /\bexport\s*\{[^}]*\bas\s+default\b/.test(src);
+}
+
+// 첫 번째 named export 이름을 추출한다
+function findNamedExport(src) {
+  // export { Name, ... } — "as default" 항목 제외
+  const blockMatch = src.match(/\bexport\s*\{([^}]+)\}/);
+  if (blockMatch) {
+    for (const entry of blockMatch[1].split(",")) {
+      const parts = entry.trim().split(/\s+as\s+/);
+      const name = parts.length === 2 ? parts[1].trim() : parts[0].trim();
+      if (name && name !== "default") return name;
+    }
+  }
+  // export const/let/var/function/class Name
+  const declMatch = src.match(/\bexport\s+(?:const|let|var|function|class)\s+(\w+)/);
+  if (declMatch) return declMatch[1];
+  return null;
+}
+
 // camelCase → snake_case 변환
 function toSnakeCase(str) {
   return str
@@ -275,9 +298,10 @@ function generateWidgetGleamFile(widgetName, widgetXml) {
   if (hasOptional) {
     imports += "import gleam/option.{None, Some}\n";
   }
-  imports += "import glendix/mendix\n";
-  imports += "import glendix/react.{type JsProps, type ReactElement}\n";
-  imports += "import glendix/react/attribute\n";
+  imports += "import glendix/mendix.{type JsProps}\n";
+  imports += "import redraw.{type Element}\n";
+  imports += "import redraw/dom/attribute\n";
+  imports += "import glendix/interop\n";
   imports += "import glendix/widget\n";
 
   // render 함수 본문
@@ -287,7 +311,7 @@ function generateWidgetGleamFile(widgetName, widgetXml) {
   }
 
   body += `\n  let comp = widget.component("${widgetName}")\n`;
-  body += "  react.component_el(\n    comp,\n    [\n";
+  body += "  interop.component_el(\n    comp,\n    [\n";
 
   for (const prop of requiredProps) {
     body += `      attribute.attribute("${prop.key}", ${toGleamVar(prop.key)}),\n`;
@@ -303,7 +327,7 @@ function generateWidgetGleamFile(widgetName, widgetXml) {
   content += imports;
   content += "\n";
   content += `/// ${widgetName} 위젯 렌더링 - props에서 속성을 읽어 위젯에 전달\n`;
-  content += "pub fn render(props: JsProps) -> ReactElement {\n";
+  content += "pub fn render(props: JsProps) -> Element {\n";
   content += body;
   content += "}\n";
 
@@ -462,8 +486,8 @@ function generateClassicGleamFile(widgetName, widgetId, properties) {
     imports += "import gleam/option.{None, Some}\n";
   }
   imports += "import glendix/classic\n";
-  imports += "import glendix/mendix\n";
-  imports += "import glendix/react.{type JsProps, type ReactElement}\n";
+  imports += "import glendix/mendix.{type JsProps}\n";
+  imports += "import redraw.{type Element}\n";
 
   // render 함수 본문
   let body = "";
@@ -487,7 +511,7 @@ function generateClassicGleamFile(widgetName, widgetId, properties) {
   content += imports;
   content += "\n";
   content += `/// ${widgetName} Classic 위젯 렌더링\n`;
-  content += "pub fn render(props: JsProps) -> ReactElement {\n";
+  content += "pub fn render(props: JsProps) -> Element {\n";
   content += body;
   content += "}\n";
 
@@ -870,18 +894,21 @@ export function generate_widget_bindings() {
       .join("\n");
     const mjsImports = widgets
       .map((w) => {
-        // .mjs 내용에서 named export 여부를 판별한다
-        // default export만 있으면 default import 사용
         const src = w.mjsContent ? w.mjsContent.toString("utf8") : "";
-        const hasNamedExport = new RegExp(
-          `\\bexport\\s*\\{[^}]*\\b${w.safeId}\\b`,
-        ).test(src);
         const path = w.isMultiWidget
           ? `./widgets/${w.mjsZipPath}`
           : `./widgets/${w.safeId}.mjs`;
-        return hasNamedExport
-          ? `import { ${w.safeId} } from "${path}";`
-          : `import ${w.safeId} from "${path}";`;
+        if (hasDefaultExport(src)) {
+          return `import ${w.safeId} from "${path}";`;
+        }
+        const exportName = findNamedExport(src);
+        if (exportName && exportName !== w.safeId) {
+          return `import { ${exportName} as ${w.safeId} } from "${path}";`;
+        }
+        if (exportName) {
+          return `import { ${w.safeId} } from "${path}";`;
+        }
+        return `import ${w.safeId} from "${path}";`;
       })
       .join("\n");
     const widgetEntries = widgets
@@ -1012,13 +1039,62 @@ function setupBridge() {
     );
   }
 
+  // rollup.config.mjs 자동 생성 — react 서브패스 external 처리 + Rollup 경고 억제
+  const rollupConfig = "rollup.config.mjs";
+  const hasCustomRollup = existsSync(rollupConfig);
+
+  if (!hasCustomRollup) {
+    writeFileSync(rollupConfig,
+      `// @generated glendix — 직접 수정 금지\n` +
+      `export default args => {\n` +
+      `  const configs = args.configDefaultConfig;\n` +
+      `  return configs.map(config => {\n` +
+      `    const origExternal = config.external;\n` +
+      `    return {\n` +
+      `      ...config,\n` +
+      `      external(id) {\n` +
+      `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
+      `        if (typeof origExternal === "function") return origExternal(id);\n` +
+      `        if (Array.isArray(origExternal)) {\n` +
+      `          return origExternal.some(e =>\n` +
+      `            e instanceof RegExp ? e.test(id) : e === id\n` +
+      `          );\n` +
+      `        }\n` +
+      `        return false;\n` +
+      `      },\n` +
+      `      onwarn(warning, warn) {\n` +
+      `        if (warning.code === "CIRCULAR_DEPENDENCY") return;\n` +
+      `        if (warning.code === "UNUSED_EXTERNAL_IMPORT") return;\n` +
+      `        if (config.onwarn) config.onwarn(warning, warn);\n` +
+      `        else warn(warning);\n` +
+      `      },\n` +
+      `    };\n` +
+      `  });\n` +
+      `};\n`
+    );
+  }
+
   const cleanup = () => {
     try { unlinkSync(widgetBridge); } catch {}
     if (hasEditor) try { unlinkSync(editorBridge); } catch {}
     if (hasPreview) try { unlinkSync(previewBridge); } catch {}
+    if (!hasCustomRollup) try { unlinkSync(rollupConfig); } catch {}
   };
 
   return { cleanup, widgetBridge };
+}
+
+// BABEL Note 경고만 필터링한다 (Rollup 경고는 rollup.config.mjs onwarn이 처리)
+function filterBabelNotes(stderr) {
+  return stderr
+    .split(/\r?\n/)
+    .filter(line =>
+      !line.includes("[BABEL] Note: The code generator has deoptimised") &&
+      !line.includes("as it exceeds the max of")
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // 브릿지 JS 파일을 자동 생성하고 명령 실행 후 삭제
@@ -1027,7 +1103,17 @@ export function run_with_bridge(command) {
   process.on("SIGINT", () => { cleanup(); process.exit(130); });
 
   try {
-    execSync(command, { stdio: "inherit", shell: true });
+    const result = spawnSync(command, { shell: true, stdio: ["inherit", "pipe", "pipe"] });
+    if (result.stdout && result.stdout.length > 0) process.stdout.write(result.stdout);
+    if (result.stderr && result.stderr.length > 0) {
+      const filtered = filterBabelNotes(result.stderr.toString());
+      if (filtered) process.stderr.write(filtered + "\n");
+    }
+    if (result.status !== 0) {
+      const err = new Error("Command failed: " + command);
+      err.status = result.status;
+      throw err;
+    }
   } finally {
     cleanup();
   }
@@ -1038,17 +1124,12 @@ export function run_with_bridge(command) {
 export function run_dev_with_bridge(buildCommand) {
   const { cleanup } = setupBridge();
 
-  // Circular dependency 경고를 필터링하여 Rollup 빌드를 실행한다
+  // BABEL Note만 필터링하여 Rollup 빌드를 실행한다
   function execBuild() {
     const result = spawnSync(buildCommand, { shell: true, stdio: ["inherit", "pipe", "pipe"] });
     if (result.stdout && result.stdout.length > 0) process.stdout.write(result.stdout);
     if (result.stderr && result.stderr.length > 0) {
-      const filtered = result.stderr.toString()
-        .split(/\r?\n/)
-        .filter(line => !line.includes("Circular depend") && !line.includes("build/dev/javascript/gleam_stdlib") && !line.match(/^\.\.\.and \d+ more$/))
-        .join("\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+      const filtered = filterBabelNotes(result.stderr.toString());
       if (filtered) process.stderr.write(filtered + "\n");
     }
     if (result.status !== 0) throw new Error("Build failed");

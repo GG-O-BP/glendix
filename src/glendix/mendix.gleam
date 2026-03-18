@@ -2,7 +2,9 @@
 // ValueStatus, ObjectItem 타입과 props 접근 유틸리티
 
 import gleam/option.{type Option}
-import glendix/react.{type JsProps}
+
+/// Mendix가 전달하는 props 객체
+pub type JsProps
 
 // === ValueStatus ===
 

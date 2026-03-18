@@ -1,11 +1,11 @@
 # glendix
 
-Gleam FFI 라이브러리 — React 19 + Mendix Pluggable Widget API 바인딩.
-JSX 없이 순수 Gleam으로 Mendix Pluggable Widget을 작성한다.
+Gleam FFI 라이브러리 — Mendix Pluggable Widget API 바인딩.
+React는 redraw/redraw_dom, TEA 패턴은 lustre에 위임한다.
 
 - 언어: Gleam (target: JavaScript)
-- 의존성: gleam_stdlib >= 0.44.0
-- Peer deps (위젯 프로젝트): react ^19, big.js ^6
+- 의존성: gleam_stdlib, redraw, redraw_dom, lustre
+- Peer deps (위젯 프로젝트): react ^19, react-dom ^19, big.js ^6
 
 Gleam 문법은 docs/gleam_language_tour.md 를 참조한다.
 
@@ -39,44 +39,46 @@ gleam run -m glendix/marketplace     # 마켓플레이스 위젯 다운로드
 - 주석과 doc comment는 **한국어**로 작성
 - 모듈별 단일 책임: 각 `.gleam` 파일은 하나의 타입/도메인 담당
 - `@external` 어노테이션: 상대 경로로 `.mjs` 파일 참조
-- `html.gleam`, `svg.gleam`, `svg_attribute.gleam`은 순수 Gleam — FFI 추가 금지
 
 ## 핵심 API 패턴
 
 ```gleam
-// Attribute 리스트
-[attribute.class("x"), event.on_click(handler)]
-attribute.none()  // 조건부 속성 — 렌더링 시 무시됨
-// attribute.class() 여러 번 호출 → 자동 공백 병합
+// React (redraw) 사용
+import redraw
+import redraw/dom/html
+import redraw/dom/attribute
+import redraw/dom/events
 
-// 조건부 렌더링 (if/else 대신)
-react.when(condition, fn() { ... })
-react.when_some(option, fn(value) { ... })
-react.none()  // 빈 렌더링 — 빈 문자열/리스트 사용 금지
+// 위젯 진입점
+import glendix/mendix.{type JsProps}
+import redraw.{type Element}
 
-// 컴포넌트
-react.define_component("Name", render_fn)  // DevTools 이름
-react.memo(component)                       // Gleam 구조 동등성 리렌더 방지
+pub fn widget(props: JsProps) -> Element { ... }
 
-// Context
-react.create_context(default) |> react.provider(ctx, value, children)
-hook.use_context(ctx)
+// 외부 JS 컴포넌트 (widget/binding)
+import glendix/interop
+interop.component_el(comp, attrs, children)
+
+// Lustre TEA 패턴
+import glendix/lustre as gl
+gl.use_tea(#(init_model, effect.none()), update, view)
+gl.use_simple(init_model, update, view)
+gl.embed(redraw_element)  // lustre view 안에 redraw 삽입
 ```
 
 ## 절대 하지 말 것
 
 - FFI `.mjs`에 비즈니스 로직 넣기
 - Gleam에서 JS `undefined` 직접 사용 (`Option` 변환 필수)
-- `react.none()` 대신 빈 문자열/빈 리스트로 렌더링 제거
 - `date.gleam` month를 JS 0-based로 전달 (FFI가 1↔0 자동 변환)
 - 외부 React 컴포넌트/위젯에 수동 `.mjs` FFI 작성
 - `binding.resolve()` / `widget.component()` 이름을 snake_case 변환 (JS PascalCase 유지)
-- `html.gleam`에 FFI 함수 추가
 
 ## 바인딩 & 위젯
 
 - **외부 React 컴포넌트**: `bindings.json` → `glendix/install` → `glendix/binding` 사용
 - **Pluggable .mpk 위젯**: `widgets/` 디렉토리 → `glendix/widget.component("Name")`
+- **위젯 prop 헬퍼**: `widget.prop(k, v)` / `widget.editable_prop(k, v, d, set)` / `widget.action_prop(k, fn)`
 - **Classic Dojo .mpk 위젯**: `widgets/` 디렉토리 → `glendix/classic.render(widget_id, props)`
 - `install` 시 `binding_ffi.mjs`, `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성
 
@@ -97,7 +99,7 @@ Mendix 공식 문서(docs.mendix.com) 접근 불가. GitHub 소스 참조:
 - 빌드 도구: `github.com/mendix/widgets-tools`
 
 핵심 개념:
-- 위젯 진입점: `fn(JsProps) -> ReactElement`
+- 위젯 진입점: `fn(JsProps) -> Element`
 - `ValueStatus`: `Available | Loading | Unavailable` — 값 읽기 전 확인 필수
 - `EditableValue.setValue()` 값 변경 / `ActionValue.execute()` 액션 실행
 - `ListValue`: 페이징/정렬/필터 지원

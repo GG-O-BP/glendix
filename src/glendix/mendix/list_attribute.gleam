@@ -4,7 +4,7 @@
 import gleam/option.{type Option}
 import glendix/mendix.{type ObjectItem}
 import glendix/mendix/formatter.{type ValueFormatter}
-import glendix/react.{type ReactElement}
+import redraw.{type Element}
 
 // === 타입 ===
 
@@ -30,9 +30,9 @@ pub fn get_action(action: ListActionValue, item: ObjectItem) -> Option(a)
 @external(javascript, "../mendix_ffi.mjs", "list_type_get")
 pub fn get_expression(expr: ListExpressionValue, item: ObjectItem) -> a
 
-/// 특정 아이템의 위젯 렌더링 가져오기 (ReactElement 반환)
+/// 특정 아이템의 위젯 렌더링 가져오기 (Element 반환)
 @external(javascript, "../mendix_ffi.mjs", "list_type_get")
-pub fn get_widget(widget: ListWidgetValue, item: ObjectItem) -> ReactElement
+pub fn get_widget(widget: ListWidgetValue, item: ObjectItem) -> Element
 
 // === ListAttributeValue 메타데이터 ===
 

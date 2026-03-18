@@ -1,7 +1,7 @@
 // Promise 유틸리티 — 체이닝, 에러 처리, 병렬 실행
 
 import gleam/dynamic.{type Dynamic}
-import glendix/react.{type Promise}
+import gleam/javascript/promise.{type Promise}
 
 /// 값을 즉시 이행된 Promise로 래핑
 @external(javascript, "./promise_ffi.mjs", "promise_resolve")
