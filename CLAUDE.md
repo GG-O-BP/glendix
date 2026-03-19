@@ -76,20 +76,42 @@ gl.embed(redraw_element)  // lustre view 안에 redraw 삽입
 
 ## 바인딩 & 위젯
 
-- **외부 React 컴포넌트**: `bindings.json` → `glendix/install` → `glendix/binding` 사용
-- **Pluggable .mpk 위젯**: `widgets/` 디렉토리 → `glendix/widget.component("Name")`
+- **외부 React 컴포넌트**: `gleam.toml [tools.glendix.bindings]` (우선) 또는 `bindings.json` (폴백) → `glendix/install` → `glendix/binding` 사용
+- **Pluggable .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` (자동 다운로드 → `build/widgets/` 캐시) 또는 `widgets/` 디렉토리 → `glendix/widget.component("Name")`
 - **위젯 prop 헬퍼**: `widget.prop(k, v)` / `widget.editable_prop(k, v, d, set)` / `widget.action_prop(k, fn)`
 - **Classic Dojo .mpk 위젯**: `widgets/` 디렉토리 → `glendix/classic.render(widget_id, props)`
-- `install` 시 `binding_ffi.mjs`, `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성
+- `install` 시 TOML 위젯 다운로드/캐시 → `binding_ffi.mjs`, `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성
+- 이름 충돌 시 TOML(build/widgets/) 우선, widgets/*.mpk 폴백
 
 ## Editor Configuration (Jint 호환)
 
 `editor_config.gleam`은 Studio Pro의 Jint(.NET JS 엔진)에서 실행된다.
 **Gleam List 사용 금지** — WeakMap, Symbol.iterator 미지원. 복수 키는 콤마 구분 String.
 
-## PM 자동 감지
+## PM 감지
 
-lock 파일 기반: `pnpm-lock.yaml` → pnpm / `bun.lockb`·`bun.lock` → bun / 기본값 → npm
+`gleam.toml`의 `[tools.glendix] pm = "pnpm"` 오버라이드 우선. 없으면 lock 파일 기반: `pnpm-lock.yaml` → pnpm / `bun.lockb`·`bun.lock` → bun / 기본값 → npm
+
+## gleam.toml 설정 (`[tools.glendix]`)
+
+```toml
+[tools.glendix]
+pm = "pnpm"                    # PM 오버라이드 (pnpm/bun/npm)
+
+[tools.glendix.bindings]       # bindings.json 대체
+recharts = ["PieChart", "Cell", "Tooltip", "Pie"]
+"@mui/material" = ["Button", "TextField"]
+
+[tools.glendix.widgets.Charts] # 위젯 자동 다운로드
+version = "3.0.0"
+# id = 106517                  ← Content API 검색 후 자동 기록
+# s3_id = "com/..."            ← 다운로드 URL (있으면 인증 없이 직접 다운로드)
+```
+
+- `install` 시 `[tools.glendix.widgets.*]`의 위젯을 `build/widgets/{name}/`에 다운로드/캐시
+- `meta.json`의 version과 TOML version 불일치 시 재다운로드
+- `gleam clean` → `build/` 삭제 → 다음 install에서 재다운로드
+- marketplace TUI 다운로드 시 자동으로 gleam.toml에 위젯 항목 추가
 
 ## Mendix API 레퍼런스
 

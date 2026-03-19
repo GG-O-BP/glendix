@@ -139,10 +139,10 @@ pub fn widget(_props: JsProps) -> Element {
 |---|---|
 | `glendix/interop` | Renders external JS React components (from `widget`/`binding`) as `redraw.Element` |
 | `glendix/lustre` | Lustre TEA bridge — `use_tea`, `use_simple`, `render`, `embed` |
-| `glendix/binding` | For using other people's React components — just write `bindings.json` and you're sorted! |
-| `glendix/widget` | For using `.mpk` widgets from the `widgets/` folder — `component`, `prop`, `editable_prop`, `action_prop` |
+| `glendix/binding` | For using other people's React components — configure in `gleam.toml` or `bindings.json` |
+| `glendix/widget` | For using `.mpk` widgets — auto-downloaded via `gleam.toml` or from `widgets/` folder — `component`, `prop`, `editable_prop`, `action_prop` |
 | `glendix/classic` | Classic (Dojo) widget wrapper — `classic.render(widget_id, properties)` |
-| `glendix/marketplace` | Search and download widgets from the Mendix Marketplace |
+| `glendix/marketplace` | Search and download widgets from the Mendix Marketplace (auto-saves to `gleam.toml`) |
 | `glendix/define` | Interactive TUI editor for widget property definitions |
 
 ### Mendix Bits
@@ -251,15 +251,14 @@ pub fn render_input(props: JsProps) -> Element {
 
 You can use React libraries from npm without writing any `.mjs` files yourself — isn't that ace!
 
-**1. Make a `bindings.json` file:**
+**1. Add bindings to `gleam.toml`:**
 
-```json
-{
-  "recharts": {
-    "components": ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
-  }
-}
+```toml
+[tools.glendix.bindings]
+recharts = ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
 ```
+
+> You can also use a `bindings.json` file instead (it still works as a fallback).
 
 **2. Install the package:**
 
@@ -310,7 +309,19 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### Using .mpk Widgets
 
-You can put `.mpk` files in the `widgets/` folder and use them like React components — how cool is that!
+You can use Marketplace widgets as React components — either auto-downloaded via `gleam.toml` or placed manually in `widgets/`.
+
+**Option A: Auto-download via `gleam.toml` (recommended)**
+
+```toml
+[tools.glendix.widgets.Charts]
+version = "3.0.0"
+# s3_id = "com/..."   ← if you have this, no auth needed!
+```
+
+Run `gleam run -m glendix/install` — it downloads to `build/widgets/` cache and generates everything automatically.
+
+**Option B: Manual `.mpk` files**
 
 **1. Pop your `.mpk` files into the `widgets/` folder**
 
@@ -395,11 +406,13 @@ gleam run -m glendix/marketplace
 > 0,1,3          ← use commas to pick several at once
 ```
 
+Downloaded widgets are cached in `build/widgets/` and automatically added to your `gleam.toml` — no need to commit `.mpk` files to source control!
+
 ## Build Scripts
 
 | Command | What It Does |
 |---------|-------------|
-| `gleam run -m glendix/install` | Installs everything + makes bindings + generates widget files |
+| `gleam run -m glendix/install` | Installs deps + downloads TOML widgets + makes bindings + generates widget files |
 | `gleam run -m glendix/marketplace` | Searches and downloads widgets from the Marketplace |
 | `gleam run -m glendix/define` | Interactive TUI editor for widget property definitions |
 | `gleam run -m glendix/build` | Makes a production build (.mpk file) |

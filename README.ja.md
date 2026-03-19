@@ -140,10 +140,10 @@ pub fn widget(_props: JsProps) -> Element {
 |---|---|
 | `glendix/interop` | そとのJS Reactコンポーネント（`widget`/`binding`からのやつ）を`redraw.Element`にするよ！ |
 | `glendix/lustre` | Lustre TEAブリッジ！ — `use_tea`、`use_simple`、`render`、`embed` |
-| `glendix/binding` | ほかのひとがつくったReactコンポーネントをつかうよ！ — `bindings.json`をかくだけでだいじょうぶ！ |
-| `glendix/widget` | `.mpk`ウィジェットを`widgets/`フォルダからつかえるよ！ — `component`、`prop`、`editable_prop`、`action_prop` |
+| `glendix/binding` | ほかのひとがつくったReactコンポーネントをつかうよ！ — `gleam.toml`か`bindings.json`にせっていするだけ！ |
+| `glendix/widget` | `.mpk`ウィジェットをつかうよ！ — `gleam.toml`でじどうダウンロードか`widgets/`フォルダにいれてね！ — `component`、`prop`、`editable_prop`、`action_prop` |
 | `glendix/classic` | むかしのClassic（Dojo）ウィジェットラッパー — `classic.render(widget_id, properties)`パターン |
-| `glendix/marketplace` | Mendix Marketplaceでウィジェットをさがしてダウンロードできるよ！ |
+| `glendix/marketplace` | Mendix Marketplaceでウィジェットをさがしてダウンロード！（`gleam.toml`にじどうほぞん！） |
 | `glendix/define` | ウィジェットプロパティていぎのTUIエディター！ターミナルでぜんぶできるよ！ |
 
 ### Mendixのところ！
@@ -252,17 +252,16 @@ pub fn render_input(props: JsProps) -> Element {
 
 npmにあるReactライブラリを`.mjs`ファイルなしでつかえちゃうんだよ！すごいでしょ？！
 
-**1. `bindings.json`ファイルをつくるよ：**
+**1. `gleam.toml`にバインディングをついかするよ：**
 
-```json
-{
-  "recharts": {
-    "components": ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
-  }
-}
+```toml
+[tools.glendix.bindings]
+recharts = ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
 ```
 
-**2. パッケージをインストール** — `bindings.json`にかいたパッケージは`node_modules`にないとだめだよ：
+> `bindings.json`ファイルもまだつかえるよ！（フォールバックとしてうごくよ！）
+
+**2. パッケージをインストール：**
 
 ```bash
 npm install recharts
@@ -311,7 +310,19 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### .mpkウィジェットをつかう！
 
-`.mpk`ファイルを`widgets/`フォルダにいれるとReactコンポーネントみたいにつかえるんだよ！めっちゃかっこよくない？！
+Marketplaceのウィジェットをまるでreactコンポーネントみたいにつかえちゃうんだよ！`gleam.toml`でじどうダウンロードするか、じぶんで`widgets/`にいれるかえらべるよ！
+
+**ほうほうA: `gleam.toml`でじどうダウンロード（おすすめ！）**
+
+```toml
+[tools.glendix.widgets.Charts]
+version = "3.0.0"
+# s3_id = "com/..."   ← これがあるとにんしょうなしでちょくせつダウンロード！
+```
+
+`gleam run -m glendix/install`をじっこうすると`build/widgets/`にキャッシュして、バインディングもぜんぶつくってくれるよ！
+
+**ほうほうB: `.mpk`ファイルをじぶんでいれる**
 
 **1. `.mpk`ファイルを`widgets/`フォルダにいれる！**
 
@@ -396,11 +407,13 @@ gleam run -m glendix/marketplace
 > 0,1,3          ← カンマでいくつもいっぺんに！
 ```
 
+ダウンロードしたウィジェットは`build/widgets/`にキャッシュされて、`gleam.toml`にじどうでついかされるよ！`.mpk`ファイルをソースにコミットしなくていいからすっきり！
+
 ## ビルドスクリプト！
 
 | コマンド | なにをするの？ |
 |----------|-------------|
-| `gleam run -m glendix/install` | ぜんぶインストール + バインディングせいせい + ウィジェットファイルせいせい！ |
+| `gleam run -m glendix/install` | ぜんぶインストール + TOMLウィジェットダウンロード + バインディングせいせい + ウィジェットファイルせいせい！ |
 | `gleam run -m glendix/marketplace` | Marketplaceでウィジェットをさがしてダウンロード！ |
 | `gleam run -m glendix/define` | ウィジェットプロパティていぎをTUIでへんしゅう！ |
 | `gleam run -m glendix/build` | プロダクションビルド！（.mpkファイルができるよ！） |

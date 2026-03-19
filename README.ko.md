@@ -140,10 +140,10 @@ pub fn widget(_props: JsProps) -> Element {
 |---|---|
 | `glendix/interop` | 외부 JS React 컴포넌트(`widget`/`binding`에서 가져온 거)를 `redraw.Element`로 렌더링! |
 | `glendix/lustre` | Lustre TEA 브릿지! — `use_tea`, `use_simple`, `render`, `embed` |
-| `glendix/binding` | 다른 사람이 만든 React 컴포넌트 쓰는 거! — `bindings.json`만 쓰면 되고 `.mjs` 안 만들어도 돼! |
-| `glendix/widget` | `.mpk` 위젯을 `widgets/` 폴더에서 쓰는 거! — `component`, `prop`, `editable_prop`, `action_prop` |
+| `glendix/binding` | 다른 사람이 만든 React 컴포넌트 쓰는 거! — `gleam.toml`이나 `bindings.json`에 설정하면 `.mjs` 안 만들어도 돼! |
+| `glendix/widget` | `.mpk` 위젯 쓰는 거! — `gleam.toml`로 자동 다운로드하거나 `widgets/` 폴더에 넣으면 돼! — `component`, `prop`, `editable_prop`, `action_prop` |
 | `glendix/classic` | 옛날 Classic (Dojo) 위젯 래퍼 — `classic.render(widget_id, properties)` 패턴 |
-| `glendix/marketplace` | Mendix Marketplace에서 위젯 검색하고 다운받는 거! |
+| `glendix/marketplace` | Mendix Marketplace에서 위젯 검색하고 다운받는 거! (`gleam.toml`에 자동 저장!) |
 | `glendix/define` | 위젯 프로퍼티 정의 TUI 에디터! |
 
 ### Mendix 쪽!
@@ -252,15 +252,14 @@ pub fn render_input(props: JsProps) -> Element {
 
 npm에 있는 React 라이브러리를 `.mjs` 파일 없이 바로 쓸 수 있어! 완전 신기하지?!
 
-**1. `bindings.json` 파일 만들기:**
+**1. `gleam.toml`에 바인딩 추가하기:**
 
-```json
-{
-  "recharts": {
-    "components": ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
-  }
-}
+```toml
+[tools.glendix.bindings]
+recharts = ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
 ```
+
+> `bindings.json` 파일도 아직 쓸 수 있어! (폴백으로 동작해!)
 
 **2. 패키지 설치하기:**
 
@@ -311,7 +310,19 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### .mpk 위젯 쓰기!
 
-`.mpk` 파일을 `widgets/` 폴더에 넣으면 React 컴포넌트처럼 쓸 수 있어! 완전 쩔지 않아?!
+Marketplace 위젯을 React 컴포넌트처럼 쓸 수 있어! `gleam.toml`로 자동 다운로드하거나 직접 `widgets/`에 넣으면 돼!
+
+**방법 A: `gleam.toml`로 자동 다운로드 (추천!)**
+
+```toml
+[tools.glendix.widgets.Charts]
+version = "3.0.0"
+# s3_id = "com/..."   ← 이거 있으면 인증 없이 바로 다운받아!
+```
+
+`gleam run -m glendix/install` 하면 `build/widgets/`에 캐시하고 바인딩도 다 만들어줘!
+
+**방법 B: `.mpk` 파일 직접 넣기**
 
 **1. `.mpk` 파일을 `widgets/` 폴더에 넣기!**
 
@@ -396,11 +407,13 @@ gleam run -m glendix/marketplace
 > 0,1,3          ← 쉼표로 여러 개 한꺼번에!
 ```
 
+다운받은 위젯은 `build/widgets/`에 캐시되고 `gleam.toml`에 자동으로 추가돼! `.mpk` 파일을 소스에 커밋 안 해도 돼서 완전 깔끔해!
+
 ## 빌드 스크립트!
 
 | 명령어 | 뭐 하는 건지! |
 |--------|-------------|
-| `gleam run -m glendix/install` | 의존성 설치 + 바인딩 생성 + 위젯 파일 생성! |
+| `gleam run -m glendix/install` | 의존성 설치 + TOML 위젯 다운로드 + 바인딩 생성 + 위젯 파일 생성! |
 | `gleam run -m glendix/marketplace` | Marketplace에서 위젯 검색하고 다운받기! |
 | `gleam run -m glendix/define` | 위젯 프로퍼티 정의를 TUI로 편집! |
 | `gleam run -m glendix/build` | 프로덕션 빌드! (.mpk 파일 만들어줘!) |

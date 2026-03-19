@@ -4,6 +4,7 @@ import glendix/cmd
 
 pub fn main() {
   cmd.exec(cmd.detect_install_command())
+  cmd.resolve_toml_widgets()
   cmd.generate_bindings()
   cmd.generate_widget_bindings()
 }

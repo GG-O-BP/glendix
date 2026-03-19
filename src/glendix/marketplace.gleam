@@ -73,6 +73,7 @@ type ViewMode {
     ver_cursor: Int,
     queue: List(#(Int, String)),
     xas_data: VersionInfoMap,
+    content_id: Int,
   )
 }
 
@@ -105,9 +106,6 @@ fn read_pat() -> Option(String)
 
 @external(javascript, "./marketplace_ffi.mjs", "ensure_cache_dir")
 fn ensure_cache_dir() -> Nil
-
-@external(javascript, "./marketplace_ffi.mjs", "ensure_widgets_dir")
-fn ensure_widgets_dir() -> Nil
 
 @external(javascript, "./marketplace_ffi.mjs", "load_first_batch")
 fn load_first_batch(pat: String) -> #(List(MarketplaceWidget), Int, Bool)
@@ -166,9 +164,6 @@ fn merge_version_data(
   api: List(WidgetVersion),
   xas: List(XasVersion),
 ) -> List(WidgetVersion)
-
-@external(javascript, "./marketplace_ffi.mjs", "download_from_url")
-fn download_from_url(url: String) -> Option(String)
 
 @external(javascript, "./marketplace_ffi.mjs", "version_number")
 fn version_number(v: WidgetVersion) -> String
@@ -262,7 +257,7 @@ fn render(state: MarketplaceState) -> Nil {
         state.status_msg,
       )
     }
-    SelectVersion(name, versions, ver_cursor, _, _) -> {
+    SelectVersion(name, versions, ver_cursor, _, _, _) -> {
       let version_items =
         list.index_map(versions, fn(v, idx) {
           let date = case version_date(v) {
@@ -458,12 +453,12 @@ fn handle_version_key(
       )
     KeyUp -> {
       case state.view_mode {
-        SelectVersion(n, vs, vc, q, x) -> {
+        SelectVersion(n, vs, vc, q, x, cid) -> {
           let new_vc = int.max(0, vc - 1)
           tui_loop(
             MarketplaceState(
               ..state,
-              view_mode: SelectVersion(n, vs, new_vc, q, x),
+              view_mode: SelectVersion(n, vs, new_vc, q, x, cid),
               status_msg: None,
             ),
           )
@@ -473,13 +468,13 @@ fn handle_version_key(
     }
     KeyDown -> {
       case state.view_mode {
-        SelectVersion(n, vs, vc, q, x) -> {
+        SelectVersion(n, vs, vc, q, x, cid) -> {
           let max = int.max(0, list.length(vs) - 1)
           let new_vc = int.min(max, vc + 1)
           tui_loop(
             MarketplaceState(
               ..state,
-              view_mode: SelectVersion(n, vs, new_vc, q, x),
+              view_mode: SelectVersion(n, vs, new_vc, q, x, cid),
               status_msg: None,
             ),
           )
@@ -489,11 +484,11 @@ fn handle_version_key(
     }
     KeyHome -> {
       case state.view_mode {
-        SelectVersion(n, vs, _, q, x) ->
+        SelectVersion(n, vs, _, q, x, cid) ->
           tui_loop(
             MarketplaceState(
               ..state,
-              view_mode: SelectVersion(n, vs, 0, q, x),
+              view_mode: SelectVersion(n, vs, 0, q, x, cid),
               status_msg: None,
             ),
           )
@@ -502,12 +497,12 @@ fn handle_version_key(
     }
     KeyEnd -> {
       case state.view_mode {
-        SelectVersion(n, vs, _, q, x) -> {
+        SelectVersion(n, vs, _, q, x, cid) -> {
           let max = int.max(0, list.length(vs) - 1)
           tui_loop(
             MarketplaceState(
               ..state,
-              view_mode: SelectVersion(n, vs, max, q, x),
+              view_mode: SelectVersion(n, vs, max, q, x, cid),
               status_msg: None,
             ),
           )
@@ -622,7 +617,7 @@ fn enter_version_mode(
           let merged = merge_version_data(api_versions, xas_versions)
           MarketplaceState(
             ..state,
-            view_mode: SelectVersion(name, merged, 0, rest, xas_data),
+            view_mode: SelectVersion(name, merged, 0, rest, xas_data, cid),
             status_msg: None,
           )
         }
@@ -635,7 +630,7 @@ fn enter_version_mode(
 fn confirm_version(state: MarketplaceState) -> MarketplaceState {
   case state.view_mode {
     Browse -> state
-    SelectVersion(name, versions, ver_cursor, queue, xas_data) -> {
+    SelectVersion(name, versions, ver_cursor, queue, xas_data, content_id) -> {
       case list.drop(versions, ver_cursor) |> list.first {
         Error(_) -> state
         Ok(selected) -> {
@@ -643,11 +638,23 @@ fn confirm_version(state: MarketplaceState) -> MarketplaceState {
             True, Some(s3_id) -> {
               // 다운로드 진행 (스피너)
               show_loading(name, "다운로드 중...")
-              ensure_widgets_dir()
               let url = "https://files.appstore.mendix.com/" <> s3_id
-              case download_from_url(url) {
-                Some(filename) -> {
+              case
+                cmd.download_to_cache(
+                  url,
+                  name,
+                  version_number(selected),
+                  Some(content_id),
+                )
+              {
+                True -> {
                   stop_spinner()
+                  cmd.write_widget_toml(
+                    name,
+                    version_number(selected),
+                    Some(content_id),
+                    Some(s3_id),
+                  )
                   let type_label = case version_react_ready(selected) {
                     Some(True) -> " (Pluggable)"
                     Some(False) -> " (Classic)"
@@ -659,14 +666,14 @@ fn confirm_version(state: MarketplaceState) -> MarketplaceState {
                       downloaded: state.downloaded + 1,
                       status_msg: Some(style.green(
                         "✓ "
-                        <> filename
+                        <> name
                         <> " 다운로드 완료"
                         <> type_label,
                       )),
                     )
                   enter_version_mode(state, queue, xas_data)
                 }
-                None -> {
+                False -> {
                   stop_spinner()
                   let state =
                     MarketplaceState(
@@ -931,7 +938,6 @@ fn prompt_loop_inner(state: MarketplaceState) -> MarketplaceState {
               prompt_loop_inner(new_state)
             }
             _ -> {
-              ensure_widgets_dir()
               let state = stop_loader(state)
               let selected_widgets =
                 list.filter_map(valid, fn(idx) {
@@ -1083,19 +1089,32 @@ fn prompt_download_one(
               case version_downloadable(sel), version_s3_id(sel) {
                 True, Some(s3) -> {
                   let url = "https://files.appstore.mendix.com/" <> s3
-                  case download_from_url(url) {
-                    Some(f) -> {
+                  case
+                    cmd.download_to_cache(
+                      url,
+                      name,
+                      version_number(sel),
+                      Some(content_id),
+                    )
+                  {
+                    True -> {
+                      cmd.write_widget_toml(
+                        name,
+                        version_number(sel),
+                        Some(content_id),
+                        Some(s3),
+                      )
                       let tl = case version_react_ready(sel) {
                         Some(True) -> " (Pluggable)"
                         Some(False) -> " (Classic)"
                         None -> ""
                       }
                       ui.print_success(
-                        "→ " <> f <> " 다운로드 완료" <> tl,
+                        "→ " <> name <> " 다운로드 완료" <> tl,
                       )
                       downloaded + 1
                     }
-                    None -> downloaded
+                    False -> downloaded
                   }
                 }
                 _, _ -> {

@@ -1,7 +1,513 @@
 // 셸 명령어 실행 + 파일 존재 확인 + 브릿지 자동 생성 + 바인딩 생성 FFI 어댑터
 import { execSync, spawnSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync, readSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
+import { Some, None } from "../../gleam_stdlib/gleam/option.mjs";
+
+// ── TOML 파서/라이터 (tools.glendix 섹션) ──
+
+const TOML_MX_DIR = ".marketplace-cache";
+const TOML_SESSION_PATH = `${TOML_MX_DIR}/session.json`;
+const TOML_API_BASE = "https://marketplace-api.mendix.com/v1";
+
+function parseTomlValue(raw) {
+  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
+  if (raw.startsWith('[') && raw.endsWith(']')) {
+    const inner = raw.slice(1, -1).trim();
+    if (inner === "") return [];
+    return inner.split(',').map(s => {
+      s = s.trim();
+      if (s.startsWith('"') && s.endsWith('"')) return s.slice(1, -1);
+      return s;
+    });
+  }
+  const num = parseInt(raw, 10);
+  if (!isNaN(num) && String(num) === raw) return num;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return raw;
+}
+
+function parseGlendixToml() {
+  if (!existsSync("gleam.toml")) return null;
+  const content = readFileSync("gleam.toml", "utf-8");
+  const lines = content.split(/\r?\n/);
+  const result = { pm: null, bindings: {}, widgets: {} };
+  let currentSection = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+
+    const sectionMatch = trimmed.match(/^\[(.+)\]$/);
+    if (sectionMatch) {
+      const path = sectionMatch[1];
+      if (path === "tools.glendix") currentSection = "root";
+      else if (path === "tools.glendix.bindings") currentSection = "bindings";
+      else if (path.startsWith("tools.glendix.widgets.")) {
+        const wn = path.slice("tools.glendix.widgets.".length);
+        currentSection = "widgets." + wn;
+        if (!result.widgets[wn]) result.widgets[wn] = {};
+      } else currentSection = null;
+      continue;
+    }
+
+    if (!currentSection) continue;
+
+    const kvMatch = trimmed.match(/^("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!kvMatch) continue;
+
+    let key = kvMatch[1].trim();
+    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
+    const value = parseTomlValue(kvMatch[2].trim());
+
+    if (currentSection === "root") {
+      if (key === "pm") result.pm = value;
+    } else if (currentSection === "bindings") {
+      result.bindings[key] = value;
+    } else if (currentSection.startsWith("widgets.")) {
+      const wn = currentSection.slice("widgets.".length);
+      result.widgets[wn][key] = value;
+    }
+  }
+
+  return result;
+}
+
+function formatTomlValue(value) {
+  if (typeof value === "string") return `"${value}"`;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return "[" + value.map(v => `"${v}"`).join(", ") + "]";
+  return String(value);
+}
+
+function writeTomlKey(sectionPath, key, value) {
+  const content = readFileSync("gleam.toml", "utf-8");
+  const lines = content.split(/\r?\n/);
+  const sectionHeader = `[${sectionPath}]`;
+  let sectionStart = -1;
+  let sectionEnd = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === sectionHeader) sectionStart = i;
+    else if (sectionStart >= 0 && /^\[/.test(trimmed)) { sectionEnd = i; break; }
+  }
+
+  if (sectionStart === -1) {
+    writeTomlSection(sectionPath, [[key, value]]);
+    return;
+  }
+
+  const needsQuote = /[^A-Za-z0-9_-]/.test(key);
+  const formattedKey = needsQuote ? `"${key}"` : key;
+  const newLine = `${formattedKey} = ${formatTomlValue(value)}`;
+
+  let keyLine = -1;
+  let commentedKeyLine = -1;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const trimmed = lines[i].trim();
+    const kvMatch = trimmed.match(/^("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+)\s*=\s*/);
+    if (kvMatch) {
+      let k = kvMatch[1].trim();
+      if (k.startsWith('"') && k.endsWith('"')) k = k.slice(1, -1);
+      if (k === key) { keyLine = i; break; }
+    }
+    const commentMatch = trimmed.match(/^#\s*("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+)\s*=\s*/);
+    if (commentMatch) {
+      let k = commentMatch[1].trim();
+      if (k.startsWith('"') && k.endsWith('"')) k = k.slice(1, -1);
+      if (k === key) commentedKeyLine = i;
+    }
+  }
+
+  if (keyLine >= 0) lines[keyLine] = newLine;
+  else if (commentedKeyLine >= 0) lines[commentedKeyLine] = newLine;
+  else lines.splice(sectionEnd, 0, newLine);
+
+  writeFileSync("gleam.toml", lines.join("\n"));
+}
+
+function writeTomlSection(sectionPath, entries) {
+  const content = readFileSync("gleam.toml", "utf-8");
+  const lines = content.split(/\r?\n/);
+  const sectionHeader = `[${sectionPath}]`;
+
+  for (const line of lines) {
+    if (line.trim() === sectionHeader) {
+      for (const [key, value] of entries) writeTomlKey(sectionPath, key, value);
+      return;
+    }
+  }
+
+  let lastGlendixEnd = -1;
+  let inGlendix = false;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith("[tools.glendix")) { inGlendix = true; lastGlendixEnd = i; }
+    else if (inGlendix && /^\[/.test(trimmed) && !trimmed.startsWith("[tools.glendix")) break;
+    else if (inGlendix) lastGlendixEnd = i;
+  }
+
+  const block = [`\n${sectionHeader}`];
+  for (const [key, value] of entries) {
+    const needsQuote = /[^A-Za-z0-9_-]/.test(key);
+    const fk = needsQuote ? `"${key}"` : key;
+    block.push(`${fk} = ${formatTomlValue(value)}`);
+  }
+
+  if (lastGlendixEnd >= 0) lines.splice(lastGlendixEnd + 1, 0, ...block);
+  else lines.push(...block);
+
+  writeFileSync("gleam.toml", lines.join("\n"));
+}
+
+// ── TOML 위젯 다운로드 헬퍼 ──
+
+function curlJsonSimple(url, pat) {
+  try {
+    const result = execSync(
+      `curl -s -H "Authorization: MxToken ${pat}" "${url}"`,
+      { encoding: "utf-8", shell: true },
+    );
+    return JSON.parse(result);
+  } catch { return null; }
+}
+
+function escPw(s) {
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function runPwScript(script, timeout) {
+  if (!existsSync(TOML_MX_DIR)) mkdirSync(TOML_MX_DIR, { recursive: true });
+  const tmp = `${TOML_MX_DIR}/pw_${Date.now()}.mjs`;
+  writeFileSync(tmp, script);
+  try {
+    return execSync(`node "${tmp}"`, {
+      encoding: "utf-8", timeout: timeout || 300000,
+      shell: true, stdio: ["pipe", "pipe", "inherit"],
+    }).trim();
+  } finally {
+    try { unlinkSync(tmp); } catch {}
+  }
+}
+
+function ensureSessionForResolve() {
+  if (existsSync(TOML_SESSION_PATH)) {
+    try {
+      const out = runPwScript(
+`import { chromium } from 'playwright';
+const b = await chromium.launch({ headless: true });
+const c = await b.newContext({ storageState: '${escPw(TOML_SESSION_PATH)}' });
+const p = await c.newPage();
+await p.goto('https://marketplace.mendix.com/', { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(3000);
+const valid = !p.url().includes('login.mendix');
+await b.close();
+console.log(JSON.stringify({ valid }));
+`, 30000);
+      if (JSON.parse(out).valid) return true;
+    } catch {}
+    console.log("  저장된 세션이 만료되었습니다.");
+  }
+
+  console.log("  브라우저에서 Mendix 로그인을 완료하세요...\n");
+  try {
+    const tmp = `${TOML_MX_DIR}/pw_${Date.now()}.mjs`;
+    writeFileSync(tmp,
+`import { chromium } from 'playwright';
+const b = await chromium.launch({ headless: false });
+const c = await b.newContext();
+const p = await c.newPage();
+await p.goto('https://login.mendix.com/');
+await p.waitForURL(u => !u.toString().includes('login.mendix'), { timeout: 300000 });
+await c.storageState({ path: '${escPw(TOML_SESSION_PATH)}' });
+await b.close();
+`);
+    try {
+      execSync(`node "${tmp}"`, { timeout: 300000, shell: true, stdio: "inherit" });
+    } finally {
+      try { unlinkSync(tmp); } catch {}
+    }
+    if (existsSync(TOML_SESSION_PATH)) {
+      console.log("  로그인 성공!\n");
+      return true;
+    }
+    console.log("  세션 파일이 생성되지 않았습니다.\n");
+    return false;
+  } catch (e) {
+    console.log(`  로그인 실패: ${e.message}\n`);
+    return false;
+  }
+}
+
+function searchContentByName(name, pat) {
+  const url = `${TOML_API_BASE}/content?name=${encodeURIComponent(name)}`;
+  const data = curlJsonSimple(url, pat);
+  if (!data?.items) return null;
+  const match = data.items.find(i => i.type === "Widget" || i.type === "Module");
+  return match ? match.contentId : null;
+}
+
+function getS3IdForVersion(contentId, targetVersion) {
+  try {
+    const out = runPwScript(
+`import { chromium } from 'playwright';
+const b = await chromium.launch({ headless: true });
+const c = await b.newContext({ storageState: '${escPw(TOML_SESSION_PATH)}' });
+const p = await c.newPage();
+const responsePromises = [];
+const xasHandler = (response) => {
+  if (!response.url().includes('/xas/')) return;
+  responsePromises.push(response.json().catch(() => null));
+};
+p.on('response', xasHandler);
+try {
+  await p.goto('https://marketplace.mendix.com/link/component/${contentId}', {
+    waitUntil: 'networkidle', timeout: 30000,
+  });
+  const tabSelectors = [
+    'a.mx-name-tabPage10',
+    'a[role="tab"]:has-text("Releases")',
+    'text="Releases"',
+  ];
+  for (const sel of tabSelectors) {
+    try {
+      const tab = p.locator(sel).first();
+      if (await tab.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await tab.click();
+        await p.waitForLoadState('networkidle');
+        break;
+      }
+    } catch {}
+  }
+  await p.waitForTimeout(3000);
+} catch {}
+p.removeListener('response', xasHandler);
+const responses = await Promise.all(responsePromises);
+let result = null;
+for (const json of responses) {
+  if (!json?.objects) continue;
+  for (const obj of json.objects) {
+    if (obj.objectType !== 'AppStore.Version') continue;
+    const attrs = obj.attributes;
+    if (!attrs?.S3ObjectId?.value) continue;
+    const vn = attrs.DisplayVersionNumber?.value;
+    if (vn === '${targetVersion}') { result = attrs.S3ObjectId.value; break; }
+  }
+  if (result) break;
+}
+await b.close();
+console.log(JSON.stringify({ s3_id: result }));
+`, 180000);
+    const data = JSON.parse(out);
+    return data.s3_id || null;
+  } catch (e) {
+    console.log(`  Playwright 오류: ${e.message}`);
+    return null;
+  }
+}
+
+function promptSyncSimple(question) {
+  process.stdout.write(question);
+  let input = "";
+  const buf = Buffer.alloc(1);
+  while (true) {
+    try {
+      const bytesRead = readSync(0, buf, 0, 1);
+      if (bytesRead === 0) break;
+      const char = buf.toString("utf-8");
+      if (char === "\n") break;
+      if (char === "\r") continue;
+      input += char;
+    } catch { break; }
+  }
+  return input.trim();
+}
+
+function readEnvValueSimple(key) {
+  if (!existsSync(".env")) return null;
+  const lines = readFileSync(".env", "utf-8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    const re = new RegExp(`^${key}\\s*=\\s*(.+)$`);
+    const match = trimmed.match(re);
+    if (match) return match[1].replace(/^["']|["']$/g, "").trim();
+  }
+  return null;
+}
+
+function downloadAndExtractToCache(name, version, id, url) {
+  const cacheDir = `build/widgets/${name}`;
+  if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
+
+  const tmpPath = `${cacheDir}/_tmp.mpk`;
+  try {
+    execSync(`curl -s -L -o "${tmpPath}" "${url}"`, { shell: true });
+  } catch {
+    console.log(`${name} — 다운로드 실패`);
+    return false;
+  }
+  if (!existsSync(tmpPath)) {
+    console.log(`${name} — 다운로드 실패`);
+    return false;
+  }
+
+  try {
+    const buf = readFileSync(tmpPath);
+    const entries = listZipEntries(buf);
+
+    // package.xml 저장
+    try {
+      writeFileSync(`${cacheDir}/package.xml`, readZipEntry(buf, "package.xml"));
+    } catch {}
+
+    // 위젯 XML 경로 추출 + 저장
+    const pkgXml = readZipEntry(buf, "package.xml").toString("utf-8");
+    const widgetFilePaths = extractAllWidgetFilePaths(pkgXml);
+    for (const xmlPath of widgetFilePaths) {
+      try {
+        const xml = readZipEntry(buf, xmlPath);
+        const fn = xmlPath.substring(xmlPath.lastIndexOf("/") + 1);
+        writeFileSync(`${cacheDir}/${fn}`, xml);
+      } catch {}
+    }
+
+    // .mjs 추출
+    for (const entry of entries) {
+      if (entry.endsWith(".mjs")) {
+        try {
+          const content = readZipEntry(buf, entry);
+          const fn = entry.substring(entry.lastIndexOf("/") + 1);
+          writeFileSync(`${cacheDir}/${fn}`, content);
+        } catch {}
+      }
+    }
+
+    // .css 추출 (editorPreview 제외)
+    for (const entry of entries) {
+      if (entry.endsWith(".css") && !entry.includes("editorPreview")) {
+        try {
+          const content = readZipEntry(buf, entry);
+          const fn = entry.substring(entry.lastIndexOf("/") + 1);
+          writeFileSync(`${cacheDir}/${fn}`, content);
+        } catch {}
+      }
+    }
+
+    // meta.json 기록
+    const meta = { version };
+    if (id != null) meta.id = id;
+    writeFileSync(`${cacheDir}/meta.json`, JSON.stringify(meta, null, 2));
+
+    try { unlinkSync(tmpPath); } catch {}
+    console.log(`${name} v${version} — 캐시 완료`);
+    return true;
+  } catch (e) {
+    console.log(`${name} — 추출 실패: ${e.message}`);
+    try { unlinkSync(tmpPath); } catch {}
+    return false;
+  }
+}
+
+// gleam.toml [tools.glendix.widgets.*]에 등록된 위젯을 다운로드/캐시한다
+export function resolve_toml_widgets() {
+  const config = parseGlendixToml();
+  if (!config?.widgets || Object.keys(config.widgets).length === 0) return;
+
+  for (const [name, widget] of Object.entries(config.widgets)) {
+    if (!widget.version) {
+      console.log(`경고: ${name} 위젯에 version이 지정되지 않았습니다`);
+      continue;
+    }
+
+    // 캐시 확인
+    const metaPath = `build/widgets/${name}/meta.json`;
+    if (existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+        if (meta.version === widget.version) {
+          console.log(`${name} v${widget.version} — 캐시 사용`);
+          continue;
+        }
+      } catch {}
+    }
+
+    // s3_id 직접 다운로드
+    if (widget.s3_id) {
+      const url = `https://files.appstore.mendix.com/${widget.s3_id}`;
+      downloadAndExtractToCache(name, widget.version, widget.id || null, url);
+      continue;
+    }
+
+    // id 없으면 Content API 검색
+    let contentId = widget.id;
+    if (!contentId) {
+      const pat = readEnvValueSimple("MENDIX_PAT");
+      if (!pat) {
+        console.log(`${name} — PAT 필요: .env에 MENDIX_PAT 설정`);
+        continue;
+      }
+      contentId = searchContentByName(name, pat);
+      if (!contentId) {
+        console.log(`'${name}' 위젯을 찾을 수 없습니다`);
+        continue;
+      }
+      writeTomlKey(`tools.glendix.widgets.${name}`, "id", contentId);
+    }
+
+    // Playwright 세션 + s3_id 확보
+    if (!ensureSessionForResolve()) {
+      console.log("로그인 실패");
+      continue;
+    }
+    const s3_id = getS3IdForVersion(contentId, widget.version);
+    if (!s3_id) {
+      console.log(`'${name}' v${widget.version} s3_id 확보 실패`);
+      continue;
+    }
+
+    // s3_id 저장 여부 확인
+    const answer = promptSyncSimple(`  ${name}의 s3_id를 gleam.toml에 저장하시겠습니까? (y/n): `);
+    if (answer.toLowerCase() === "y") {
+      writeTomlKey(`tools.glendix.widgets.${name}`, "s3_id", s3_id);
+    }
+
+    // 다운로드 + 추출
+    downloadAndExtractToCache(name, widget.version, contentId, `https://files.appstore.mendix.com/${s3_id}`);
+  }
+}
+
+// gleam.toml에 위젯 항목을 쓰기/업데이트한다
+export function write_widget_toml(name, version, id_option, s3_id_option) {
+  const entries = [["version", version]];
+  if (id_option instanceof Some) entries.push(["id", id_option[0]]);
+  if (s3_id_option instanceof Some) entries.push(["s3_id", s3_id_option[0]]);
+
+  const sectionPath = `tools.glendix.widgets.${name}`;
+  const config = parseGlendixToml();
+  const existing = config?.widgets?.[name];
+
+  if (existing) {
+    for (const [key, value] of entries) writeTomlKey(sectionPath, key, value);
+  } else {
+    writeTomlSection(sectionPath, entries);
+  }
+}
+
+// .mpk를 다운로드하고 build/widgets/{name}/에 추출한다 (marketplace용)
+export function download_to_cache(url, name, version, id_option) {
+  const id = (id_option instanceof Some) ? id_option[0] : null;
+  return downloadAndExtractToCache(name, version, id, url);
+}
+
+// gleam.toml의 [tools.glendix].pm 오버라이드를 읽는다
+export function read_pm_override() {
+  const config = parseGlendixToml();
+  return config?.pm ? new Some(config.pm) : new None();
+}
 
 // gleam_erlang 패키지의 Unused value 경고 블록을 제거한다
 function filterErlangWarnings(stderr) {
@@ -65,13 +571,25 @@ export function file_exists(path) {
 // bindings.json → binding_ffi.mjs 생성
 // glendix 빌드 경로에 직접 생성하여 사용자가 .mjs를 작성하지 않아도 되게 한다
 export function generate_bindings() {
-  if (!existsSync("bindings.json")) return;
-
+  const tomlConfig = parseGlendixToml();
   let config;
-  try {
-    config = JSON.parse(readFileSync("bindings.json", "utf-8"));
-  } catch (e) {
-    console.log("bindings.json 파싱 실패: " + e.message);
+
+  if (tomlConfig?.bindings && Object.keys(tomlConfig.bindings).length > 0) {
+    config = {};
+    for (const [pkg, components] of Object.entries(tomlConfig.bindings)) {
+      config[pkg] = { components: Array.isArray(components) ? components : [components] };
+    }
+    if (existsSync("bindings.json")) {
+      console.log("경고: gleam.toml에 bindings 설정이 있으므로 bindings.json은 무시됩니다");
+    }
+  } else if (existsSync("bindings.json")) {
+    try {
+      config = JSON.parse(readFileSync("bindings.json", "utf-8"));
+    } catch (e) {
+      console.log("bindings.json 파싱 실패: " + e.message);
+      return;
+    }
+  } else {
     return;
   }
 
@@ -95,7 +613,7 @@ export function generate_bindings() {
     `const _modules = {\n${entries.join(",\n")}\n};\n\n` +
     `export function get_module(name) {\n` +
     `  const mod = _modules[name];\n` +
-    `  if (!mod) throw new Error("바인딩에 등록되지 않은 모듈: " + name + ". bindings.json을 확인하세요.");\n` +
+    `  if (!mod) throw new Error("바인딩에 등록되지 않은 모듈: " + name + ". gleam.toml [tools.glendix.bindings] 또는 bindings.json을 확인하세요.");\n` +
     `  return mod;\n` +
     `}\n\n` +
     `export function resolve(mod, name) {\n` +
@@ -736,22 +1254,62 @@ function generateClassicFfi(classicWidgets) {
   }
 }
 
-// widgets/ 디렉토리의 .mpk에서 위젯 바인딩을 생성한다
+// widgets/ 디렉토리의 .mpk + build/widgets/ 캐시에서 위젯 바인딩을 생성한다
 export function generate_widget_bindings() {
-  if (!existsSync("widgets")) return;
-
-  let mpkFiles;
-  try {
-    mpkFiles = readdirSync("widgets").filter((f) => f.endsWith(".mpk"));
-  } catch {
-    return;
-  }
-
-  if (mpkFiles.length === 0) return;
+  const hasWidgetsDir = existsSync("widgets");
+  const hasCacheDir = existsSync("build/widgets");
+  if (!hasWidgetsDir && !hasCacheDir) return;
 
   const widgets = []; // pluggable: { name, safeId, mjsContent, cssContent, mjsZipPath?, cssZipPath?, isMultiWidget? }
   const classicWidgets = []; // classic: { name, safeId, widgetId, jsFiles, templateFiles, css, libFiles }
   const mpkSharedFiles = []; // multi-widget MPK 공유 의존성: { zipPath, content }
+  const processedNames = new Set();
+
+  // ── build/widgets/ 캐시에서 읽기 (TOML 기반, 우선) ──
+  if (hasCacheDir) {
+    try {
+      const cacheDirs = readdirSync("build/widgets");
+      for (const dirName of cacheDirs) {
+        const cacheDir = `build/widgets/${dirName}`;
+        try {
+          if (!statSync(cacheDir).isDirectory()) continue;
+        } catch { continue; }
+        const metaPath = `${cacheDir}/meta.json`;
+        if (!existsSync(metaPath)) continue;
+
+        const files = readdirSync(cacheDir);
+        const mjsFile = files.find(f => f.endsWith(".mjs"));
+        if (!mjsFile) continue;
+
+        const mjsContent = readFileSync(`${cacheDir}/${mjsFile}`);
+        const cssFile = files.find(f => f.endsWith(".css") && !f.includes("editorPreview"));
+        const cssContent = cssFile ? readFileSync(`${cacheDir}/${cssFile}`) : null;
+
+        const xmlFile = files.find(f => f.endsWith(".xml") && f !== "package.xml");
+        let widgetName = dirName;
+        if (xmlFile) {
+          const widgetXml = readFileSync(`${cacheDir}/${xmlFile}`, "utf-8");
+          const parsed = parseWidgetName(widgetXml);
+          if (parsed) widgetName = parsed;
+          generateWidgetGleamFile(widgetName, widgetXml);
+        }
+
+        const safeId = toSafeIdentifier(widgetName);
+        widgets.push({ name: widgetName, safeId, mjsContent, cssContent });
+        processedNames.add(widgetName);
+      }
+    } catch {}
+  }
+
+  // ── widgets/*.mpk에서 읽기 (기존 로직, 캐시에 없는 위젯만) ──
+  let mpkFiles = [];
+  if (hasWidgetsDir) {
+    try {
+      mpkFiles = readdirSync("widgets").filter((f) => f.endsWith(".mpk"));
+    } catch {}
+  }
+
+  if (mpkFiles.length === 0 && widgets.length === 0) return;
 
   for (const mpkFile of mpkFiles) {
     try {
@@ -765,6 +1323,7 @@ export function generate_widget_bindings() {
           console.log(`경고: ${mpkFile} Classic 위젯 추출 실패`);
           continue;
         }
+        if (processedNames.has(classic.name)) continue;
 
         // Classic .gleam 바인딩 생성
         generateClassicGleamFile(classic.name, classic.widgetId, classic.properties);
@@ -801,6 +1360,7 @@ export function generate_widget_bindings() {
           console.log(`경고: ${mpkFile}에서 위젯 이름을 찾을 수 없습니다`);
           continue;
         }
+        if (processedNames.has(widgetName)) continue;
 
         const mjsEntry = entries.find((e) => e.endsWith(".mjs"));
         if (!mjsEntry) {
@@ -838,6 +1398,7 @@ export function generate_widget_bindings() {
             console.log(`경고: ${mpkFile}의 ${widgetXmlPath}에서 위젯 이름을 찾을 수 없습니다`);
             continue;
           }
+          if (processedNames.has(widgetName)) continue;
 
           const mjsEntry = findWidgetMjsEntry(widgetXml, entries);
           if (!mjsEntry) {
@@ -1001,42 +1562,108 @@ function setupBridge() {
   generate_widget_bindings();
   execGleamFiltered("gleam build");
 
-  const widgetName = JSON.parse(readFileSync("package.json", "utf-8")).widgetName;
+  const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
+  const widgetName = pkg.widgetName;
+  const widgets = pkg.widgets;
   const gleamProject = readFileSync("gleam.toml", "utf-8").match(/^name\s*=\s*"([^"]+)"/m)[1];
+  const gleamModule = gleamProject.replace(/-/g, "_");
 
-  const widgetBridge = `src/${widgetName}.js`;
-  const editorBridge = `src/${widgetName}.editorConfig.js`;
-  const previewBridge = `src/${widgetName}.editorPreview.js`;
+  const bridgeFiles = [];
 
-  writeFileSync(
-    widgetBridge,
-    `// 자동 생성 브릿지 — 수동 편집 금지\n` +
-    `import { widget } from "../build/dev/javascript/${gleamProject}/${gleamProject.replace(/-/g, "_")}.mjs";\n` +
-    `import "./ui/${widgetName}.css";\n\n` +
-    `export const ${widgetName} = widget;\n`,
-  );
+  if (widgets) {
+    // === 멀티 위젯 모드 ===
+    for (const [componentName, fnName] of Object.entries(widgets)) {
+      // 위젯 브릿지
+      const bridge = `src/${componentName}.js`;
+      let cssLine = "";
+      if (existsSync(`src/ui/${componentName}.css`)) {
+        cssLine = `import "./ui/${componentName}.css";\n`;
+      } else if (existsSync(`src/ui/${widgetName}.css`)) {
+        cssLine = `import "./ui/${widgetName}.css";\n`;
+      }
+      writeFileSync(bridge,
+        `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+        `import { ${fnName} } from "../build/dev/javascript/${gleamProject}/${gleamModule}.mjs";\n` +
+        cssLine + `\n` +
+        `export const ${componentName} = ${fnName};\n`
+      );
+      bridgeFiles.push(bridge);
 
-  const hasEditor = existsSync("src/editor_config.gleam");
-  if (hasEditor) {
-    writeFileSync(
-      editorBridge,
+      // Editor config 브릿지 (위젯별 → 공유 폴백)
+      const editorBridge = `src/${componentName}.editorConfig.js`;
+      if (existsSync(`src/${fnName}_editor_config.gleam`)) {
+        writeFileSync(editorBridge,
+          `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+          `import { get_properties } from "../build/dev/javascript/${gleamProject}/${fnName}_editor_config.mjs";\n\n` +
+          `export const getProperties = get_properties;\n`
+        );
+        bridgeFiles.push(editorBridge);
+      } else if (existsSync("src/editor_config.gleam")) {
+        writeFileSync(editorBridge,
+          `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+          `import { get_properties } from "../build/dev/javascript/${gleamProject}/editor_config.mjs";\n\n` +
+          `export const getProperties = get_properties;\n`
+        );
+        bridgeFiles.push(editorBridge);
+      }
+
+      // Preview 브릿지 (위젯별 → 공유 폴백)
+      const previewBridge = `src/${componentName}.editorPreview.js`;
+      if (existsSync(`src/${fnName}_editor_preview.gleam`)) {
+        writeFileSync(previewBridge,
+          `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+          `import { preview } from "../build/dev/javascript/${gleamProject}/${fnName}_editor_preview.mjs";\n\n` +
+          `export { preview };\n` +
+          `export function getPreviewCss() {\n` +
+          `  return require("./ui/${componentName}.css");\n` +
+          `}\n`
+        );
+        bridgeFiles.push(previewBridge);
+      } else if (existsSync("src/editor_preview.gleam")) {
+        writeFileSync(previewBridge,
+          `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+          `import { preview } from "../build/dev/javascript/${gleamProject}/editor_preview.mjs";\n\n` +
+          `export { preview };\n` +
+          `export function getPreviewCss() {\n` +
+          `  return require("./ui/${componentName}.css");\n` +
+          `}\n`
+        );
+        bridgeFiles.push(previewBridge);
+      }
+    }
+  } else {
+    // === 단일 위젯 모드 (하위 호환) ===
+    const widgetBridge = `src/${widgetName}.js`;
+    writeFileSync(widgetBridge,
       `// 자동 생성 브릿지 — 수동 편집 금지\n` +
-      `import { get_properties } from "../build/dev/javascript/${gleamProject}/editor_config.mjs";\n\n` +
-      `export const getProperties = get_properties;\n`,
+      `import { widget } from "../build/dev/javascript/${gleamProject}/${gleamModule}.mjs";\n` +
+      `import "./ui/${widgetName}.css";\n\n` +
+      `export const ${widgetName} = widget;\n`
     );
-  }
+    bridgeFiles.push(widgetBridge);
 
-  const hasPreview = existsSync("src/editor_preview.gleam");
-  if (hasPreview) {
-    writeFileSync(
-      previewBridge,
-      `// 자동 생성 브릿지 — 수동 편집 금지\n` +
-      `import { preview } from "../build/dev/javascript/${gleamProject}/editor_preview.mjs";\n\n` +
-      `export { preview };\n` +
-      `export function getPreviewCss() {\n` +
-      `  return require("./ui/${widgetName}.css");\n` +
-      `}\n`,
-    );
+    if (existsSync("src/editor_config.gleam")) {
+      const editorBridge = `src/${widgetName}.editorConfig.js`;
+      writeFileSync(editorBridge,
+        `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+        `import { get_properties } from "../build/dev/javascript/${gleamProject}/editor_config.mjs";\n\n` +
+        `export const getProperties = get_properties;\n`
+      );
+      bridgeFiles.push(editorBridge);
+    }
+
+    if (existsSync("src/editor_preview.gleam")) {
+      const previewBridge = `src/${widgetName}.editorPreview.js`;
+      writeFileSync(previewBridge,
+        `// 자동 생성 브릿지 — 수동 편집 금지\n` +
+        `import { preview } from "../build/dev/javascript/${gleamProject}/editor_preview.mjs";\n\n` +
+        `export { preview };\n` +
+        `export function getPreviewCss() {\n` +
+        `  return require("./ui/${widgetName}.css");\n` +
+        `}\n`
+      );
+      bridgeFiles.push(previewBridge);
+    }
   }
 
   // rollup.config.mjs 자동 생성 — react 서브패스 external 처리 + Rollup 경고 억제
@@ -1044,44 +1671,98 @@ function setupBridge() {
   const hasCustomRollup = existsSync(rollupConfig);
 
   if (!hasCustomRollup) {
-    writeFileSync(rollupConfig,
-      `// @generated glendix — 직접 수정 금지\n` +
-      `export default args => {\n` +
-      `  const configs = args.configDefaultConfig;\n` +
-      `  return configs.map(config => {\n` +
-      `    const origExternal = config.external;\n` +
-      `    return {\n` +
-      `      ...config,\n` +
-      `      external(id) {\n` +
-      `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
-      `        if (typeof origExternal === "function") return origExternal(id);\n` +
-      `        if (Array.isArray(origExternal)) {\n` +
-      `          return origExternal.some(e =>\n` +
-      `            e instanceof RegExp ? e.test(id) : e === id\n` +
-      `          );\n` +
-      `        }\n` +
-      `        return false;\n` +
-      `      },\n` +
-      `      onwarn(warning, warn) {\n` +
-      `        if (warning.code === "CIRCULAR_DEPENDENCY") return;\n` +
-      `        if (warning.code === "UNUSED_EXTERNAL_IMPORT") return;\n` +
-      `        if (config.onwarn) config.onwarn(warning, warn);\n` +
-      `        else warn(warning);\n` +
-      `      },\n` +
-      `    };\n` +
-      `  });\n` +
-      `};\n`
-    );
+    const secondaryWidgets = widgets
+      ? Object.keys(widgets).filter(name => name !== widgetName)
+      : [];
+
+    if (secondaryWidgets.length > 0) {
+      // 멀티 위젯 rollup config — 추가 위젯 엔트리 포함
+      writeFileSync(rollupConfig,
+        `// @generated glendix — 직접 수정 금지\n` +
+        `import { readFileSync } from "node:fs";\n\n` +
+        `export default args => {\n` +
+        `  const configs = args.configDefaultConfig;\n` +
+        `  const secondaryWidgets = ${JSON.stringify(secondaryWidgets)};\n\n` +
+        `  function patchConfig(config) {\n` +
+        `    const origExternal = config.external;\n` +
+        `    return {\n` +
+        `      ...config,\n` +
+        `      external(id) {\n` +
+        `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
+        `        if (typeof origExternal === "function") return origExternal(id);\n` +
+        `        if (Array.isArray(origExternal)) {\n` +
+        `          return origExternal.some(e =>\n` +
+        `            e instanceof RegExp ? e.test(id) : e === id\n` +
+        `          );\n` +
+        `        }\n` +
+        `        return false;\n` +
+        `      },\n` +
+        `      onwarn(warning, warn) {\n` +
+        `        if (warning.code === "CIRCULAR_DEPENDENCY") return;\n` +
+        `        if (warning.code === "UNUSED_EXTERNAL_IMPORT") return;\n` +
+        `        if (config.onwarn) config.onwarn(warning, warn);\n` +
+        `        else warn(warning);\n` +
+        `      },\n` +
+        `    };\n` +
+        `  }\n\n` +
+        `  const result = configs.map(patchConfig);\n\n` +
+        `  const baseConfig = configs.find(c =>\n` +
+        `    c.output && !c.output.file?.includes("editorConfig") &&\n` +
+        `    !c.output.file?.includes("editorPreview")\n` +
+        `  ) || configs[0];\n\n` +
+        `  for (const name of secondaryWidgets) {\n` +
+        `    const xml = readFileSync(\`src/\${name}.xml\`, "utf-8");\n` +
+        `    const id = xml.match(/id="([^"]+)"/)[1];\n` +
+        `    const outputPath = \`dist/tmp/widgets/\${id.replace(/\\./g, "/")}.js\`;\n\n` +
+        `    result.push(patchConfig({\n` +
+        `      ...baseConfig,\n` +
+        `      input: \`src/\${name}.js\`,\n` +
+        `      output: { ...baseConfig.output, file: outputPath },\n` +
+        `    }));\n` +
+        `  }\n\n` +
+        `  return result;\n` +
+        `};\n`
+      );
+    } else {
+      writeFileSync(rollupConfig,
+        `// @generated glendix — 직접 수정 금지\n` +
+        `export default args => {\n` +
+        `  const configs = args.configDefaultConfig;\n` +
+        `  return configs.map(config => {\n` +
+        `    const origExternal = config.external;\n` +
+        `    return {\n` +
+        `      ...config,\n` +
+        `      external(id) {\n` +
+        `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
+        `        if (typeof origExternal === "function") return origExternal(id);\n` +
+        `        if (Array.isArray(origExternal)) {\n` +
+        `          return origExternal.some(e =>\n` +
+        `            e instanceof RegExp ? e.test(id) : e === id\n` +
+        `          );\n` +
+        `        }\n` +
+        `        return false;\n` +
+        `      },\n` +
+        `      onwarn(warning, warn) {\n` +
+        `        if (warning.code === "CIRCULAR_DEPENDENCY") return;\n` +
+        `        if (warning.code === "UNUSED_EXTERNAL_IMPORT") return;\n` +
+        `        if (config.onwarn) config.onwarn(warning, warn);\n` +
+        `        else warn(warning);\n` +
+        `      },\n` +
+        `    };\n` +
+        `  });\n` +
+        `};\n`
+      );
+    }
+    bridgeFiles.push(rollupConfig);
   }
 
   const cleanup = () => {
-    try { unlinkSync(widgetBridge); } catch {}
-    if (hasEditor) try { unlinkSync(editorBridge); } catch {}
-    if (hasPreview) try { unlinkSync(previewBridge); } catch {}
-    if (!hasCustomRollup) try { unlinkSync(rollupConfig); } catch {}
+    for (const f of bridgeFiles) {
+      try { unlinkSync(f); } catch {}
+    }
   };
 
-  return { cleanup, widgetBridge };
+  return { cleanup, widgetBridge: `src/${widgetName}.js` };
 }
 
 // BABEL Note 경고만 필터링한다 (Rollup 경고는 rollup.config.mjs onwarn이 처리)
