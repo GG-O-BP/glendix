@@ -1,12 +1,12 @@
 //// 외부 React 컴포넌트 바인딩 (FFI 없이 순수 Gleam으로 사용)
 ////
-//// bindings.json에 등록된 라이브러리의 컴포넌트를 가져온다.
+//// gleam.toml [tools.glendix.bindings]에 등록된 라이브러리의 컴포넌트를 가져온다.
 //// gleam run -m glendix/install 실행 시 바인딩이 자동 생성된다.
 ////
 //// redraw/dom의 호출 패턴으로 래퍼를 작성하면 일관된 API를 제공할 수 있다:
 //// ```gleam
 //// import glendix/binding
-//// import glendix/interop
+//// import mendraw/interop
 //// import redraw.{type Element}
 //// import redraw/dom/attribute.{type Attribute}
 ////
@@ -28,12 +28,12 @@
 //// }
 //// ```
 
-import glendix/interop.{type JsComponent}
+import mendraw/interop.{type JsComponent}
 
 /// 바인딩된 JS 모듈 네임스페이스
 pub type JsModule
 
-/// bindings.json에 등록된 모듈을 가져온다
+/// gleam.toml [tools.glendix.bindings]에 등록된 모듈을 가져온다
 @external(javascript, "./binding_ffi.mjs", "get_module")
 pub fn module(name: String) -> JsModule
 

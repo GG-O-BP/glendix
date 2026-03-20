@@ -1,10 +1,10 @@
 # glendix
 
 Gleam FFI 라이브러리 — Mendix Pluggable Widget API 바인딩.
-React는 redraw/redraw_dom, TEA 패턴은 lustre에 위임한다.
+React는 redraw/redraw_dom, TEA 패턴은 lustre에 위임한다. Mendix API·위젯·마켓플레이스는 mendraw에 위임한다.
 
 - 언어: Gleam (target: JavaScript)
-- 의존성: gleam_stdlib, redraw, redraw_dom, lustre
+- 의존성: gleam_stdlib, redraw, redraw_dom, lustre, mendraw
 - Peer deps (위젯 프로젝트): react ^19, react-dom ^19, big.js ^6 (decimal 속성 사용 시)
 
 Gleam 문법은 docs/gleam_language_tour.md 를 참조한다.
@@ -21,7 +21,7 @@ gleam run -m glendix/start           # Mendix 테스트 프로젝트 연동
 gleam run -m glendix/release         # 릴리즈 빌드
 gleam run -m glendix/lint            # ESLint
 gleam run -m glendix/lint_fix        # ESLint 자동 수정
-gleam run -m glendix/marketplace     # 마켓플레이스 위젯 다운로드
+gleam run -m mendraw/marketplace     # 마켓플레이스 위젯 다운로드
 ```
 
 변경 후 반드시 `gleam build`로 빌드 확인한다.
@@ -50,7 +50,7 @@ import redraw/dom/attribute
 import redraw/dom/events
 
 // 위젯 진입점
-import glendix/mendix.{type JsProps}
+import mendraw/mendix.{type JsProps}
 import redraw.{type Element}
 
 pub fn widget(props: JsProps) -> Element { ... }
@@ -59,7 +59,7 @@ pub fn widget(props: JsProps) -> Element { ... }
 mendix.cx([#("active", is_active), #("disabled", is_disabled)])
 
 // 외부 JS 컴포넌트 (widget/binding)
-import glendix/interop
+import mendraw/interop
 interop.component_el(comp, attrs, children)
 
 // Lustre TEA 패턴
@@ -73,17 +73,14 @@ gl.embed(redraw_element)  // lustre view 안에 redraw 삽입
 
 - FFI `.mjs`에 비즈니스 로직 넣기
 - Gleam에서 JS `undefined` 직접 사용 (`Option` 변환 필수)
-- `date.gleam` month를 JS 0-based로 전달 (FFI가 1↔0 자동 변환)
-- 외부 React 컴포넌트/위젯에 수동 `.mjs` FFI 작성
-- `binding.resolve()` / `widget.component()` 이름을 snake_case 변환 (JS PascalCase 유지)
 
 ## 바인딩 & 위젯
 
-- **외부 React 컴포넌트**: `gleam.toml [tools.glendix.bindings]` (우선) 또는 `bindings.json` (폴백) → `glendix/install` → `glendix/binding` 사용
-- **Pluggable .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` (자동 다운로드 → `build/widgets/` 캐시) → `glendix/widget.component("Name")`
-- **위젯 prop 헬퍼**: `widget.prop(k, v)` / `widget.editable_prop(k, v, d, set)` / `widget.action_prop(k, fn)`
-- **Classic Dojo .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` → `glendix/classic.render(widget_id, props)`
-- `install` 시 TOML 위젯 다운로드/캐시 → `binding_ffi.mjs`, `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성
+- **외부 React 컴포넌트**: `gleam.toml [tools.glendix.bindings]` → `glendix/install` → `glendix/binding` 사용
+- **Pluggable .mpk 위젯**: `gleam.toml [tools.mendraw.widgets.*]` (자동 다운로드 → `build/widgets/` 캐시) → `mendraw/widget.component("Name")`
+- **위젯 prop 헬퍼**: `mendraw/widget.prop(k, v)` / `widget.editable_prop(k, v, d, set)` / `widget.action_prop(k, fn)`
+- **Classic Dojo .mpk 위젯**: `gleam.toml [tools.mendraw.widgets.*]` → `mendraw/classic.render(widget_id, props)`
+- `install` 시 TOML 위젯 다운로드/캐시(mendraw) → `binding_ffi.mjs`(glendix), `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성(mendraw)
 
 ## Editor Configuration (Jint 호환)
 
@@ -100,20 +97,20 @@ gl.embed(redraw_element)  // lustre view 안에 redraw 삽입
 [tools.glendix]
 pm = "pnpm"                    # PM 오버라이드 (pnpm/bun/npm)
 
-[tools.glendix.bindings]       # bindings.json 대체
+[tools.glendix.bindings]       # 외부 React 컴포넌트 바인딩
 recharts = ["PieChart", "Cell", "Tooltip", "Pie"]
 "@mui/material" = ["Button", "TextField"]
 
-[tools.glendix.widgets.Charts] # 위젯 자동 다운로드
+[tools.mendraw.widgets.Charts] # 위젯 자동 다운로드
 version = "3.0.0"
 # id = 106517                  ← Content API 검색 후 자동 기록
 # s3_id = "com/..."            ← 다운로드 URL (있으면 인증 없이 직접 다운로드)
 ```
 
-- `install` 시 `[tools.glendix.widgets.*]`의 위젯을 `build/widgets/{name}/`에 다운로드/캐시
+- `install` 시 `[tools.mendraw.widgets.*]`의 위젯을 `build/widgets/{name}/`에 다운로드/캐시
 - `meta.toml`의 version과 TOML version 불일치 시 재다운로드
 - `gleam clean` → `build/` 삭제 → 다음 install에서 재다운로드
-- marketplace TUI 다운로드 시 자동으로 gleam.toml에 위젯 항목 추가
+- marketplace TUI(`mendraw/marketplace`) 다운로드 시 자동으로 gleam.toml에 위젯 항목 추가
 
 ## Mendix API 레퍼런스
 
