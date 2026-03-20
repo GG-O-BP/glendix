@@ -1,7 +1,9 @@
 // Mendix Pluggable Widget API - 핵심 타입 + JsProps 접근자
 // ValueStatus, ObjectItem 타입과 props 접근 유틸리티
 
+import gleam/list
 import gleam/option.{type Option}
+import gleam/string
 
 /// Mendix가 전달하는 props 객체
 pub type JsProps
@@ -65,3 +67,17 @@ pub fn to_option(value: a) -> Option(a)
 /// Gleam Option을 JS 값으로 변환 (None → undefined)
 @external(javascript, "./mendix_ffi.mjs", "from_option")
 pub fn from_option(option: Option(a)) -> a
+
+// === CSS 유틸리티 ===
+
+/// CSS 클래스명 조건부 조합
+pub fn cx(classes: List(#(String, Bool))) -> String {
+  classes
+  |> list.filter_map(fn(pair) {
+    case pair.1 {
+      True -> Ok(pair.0)
+      False -> Error(Nil)
+    }
+  })
+  |> string.join(" ")
+}

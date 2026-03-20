@@ -50,7 +50,7 @@ v3.0はね、ものすっごくおおきくかわったんだよ！`glendix/reac
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 3.0.2 and < 4.0.0"
+glendix = ">= 4.0.0 and < 5.0.0"
 ```
 
 ### いっしょにひつようなもの
@@ -66,6 +66,8 @@ glendix = ">= 3.0.2 and < 4.0.0"
   }
 }
 ```
+
+> `big.js`はDecimalぞくせいをつかうウィジェットだけひつようだよ！つかわないならいれなくてもだいじょうぶ！
 
 ## さっそくはじめよう！
 
@@ -141,7 +143,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/interop` | そとのJS Reactコンポーネント（`widget`/`binding`からのやつ）を`redraw.Element`にするよ！ |
 | `glendix/lustre` | Lustre TEAブリッジ！ — `use_tea`、`use_simple`、`render`、`embed` |
 | `glendix/binding` | ほかのひとがつくったReactコンポーネントをつかうよ！ — `gleam.toml`か`bindings.json`にせっていするだけ！ |
-| `glendix/widget` | `.mpk`ウィジェットをつかうよ！ — `gleam.toml`でじどうダウンロードか`widgets/`フォルダにいれてね！ — `component`、`prop`、`editable_prop`、`action_prop` |
+| `glendix/widget` | `.mpk`ウィジェットをつかうよ！ — `gleam.toml`でじどうダウンロード！ — `component`、`prop`、`editable_prop`、`action_prop` |
 | `glendix/classic` | むかしのClassic（Dojo）ウィジェットラッパー — `classic.render(widget_id, properties)`パターン |
 | `glendix/marketplace` | Mendix Marketplaceでウィジェットをさがしてダウンロード！（`gleam.toml`にじどうほぞん！） |
 | `glendix/define` | ウィジェットプロパティていぎのTUIエディター！ターミナルでぜんぶできるよ！ |
@@ -160,7 +162,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/mendix/reference` | ひとつとつながる（ReferenceValue） — おともだちひとりをゆびさすかんじ！ |
 | `glendix/mendix/reference_set` | いっぱいとつながる（ReferenceSetValue） — おともだちいっぱいゆびさすかんじ！ |
 | `glendix/mendix/date` | JS Dateラッパー（つきがGleamでは1から、JSでは0からなんだけどじどうでかえてくれるよ！あたまいい！） |
-| `glendix/mendix/big` | Big.jsラッパーだよ！すっごくせいかくなすうじがつかえるの |
+| `glendix/mendix/decimal` | Mendix Decimalきょうかいへんかん！（Big.js ↔ Gleam） |
 | `glendix/mendix/file` | `FileValue`、`WebImage` |
 | `glendix/mendix/icon` | `WebIcon` — Glyph、Image、IconFont |
 | `glendix/mendix/formatter` | `ValueFormatter` — `format`と`parse` |
@@ -310,9 +312,9 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### .mpkウィジェットをつかう！
 
-Marketplaceのウィジェットをまるでreactコンポーネントみたいにつかえちゃうんだよ！`gleam.toml`でじどうダウンロードするか、じぶんで`widgets/`にいれるかえらべるよ！
+Marketplaceのウィジェットをまるでreactコンポーネントみたいにつかえちゃうんだよ！`gleam.toml`にとうろくしてじどうダウンロードするよ！
 
-**ほうほうA: `gleam.toml`でじどうダウンロード（おすすめ！）**
+`gleam.toml`にウィジェットをせっていして`gleam run -m glendix/install`するだけ！
 
 ```toml
 [tools.glendix.widgets.Charts]
@@ -320,15 +322,9 @@ version = "3.0.0"
 # s3_id = "com/..."   ← これがあるとにんしょうなしでちょくせつダウンロード！
 ```
 
-`gleam run -m glendix/install`をじっこうすると`build/widgets/`にキャッシュして、バインディングもぜんぶつくってくれるよ！
+`build/widgets/`にキャッシュして、バインディングもぜんぶつくってくれるよ！
 
-**ほうほうB: `.mpk`ファイルをじぶんでいれる**
-
-**1. `.mpk`ファイルを`widgets/`フォルダにいれる！**
-
-**2. `gleam run -m glendix/install`をじっこう！**（バインディングをぜんぶじどうでやってくれるよ！）
-
-**3. じどうでできた`src/widgets/*.gleam`ファイルをみてみよう：**
+**じどうでできた`src/widgets/*.gleam`ファイルをみてみよう：**
 
 ```gleam
 // src/widgets/switch.gleam（じどうでできたよ！）

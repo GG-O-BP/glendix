@@ -1,5 +1,5 @@
 //// .mpk 위젯 컴포넌트 바인딩
-//// widgets/ 디렉토리의 Mendix 위젯을 React 컴포넌트로 사용한다.
+//// gleam.toml [tools.glendix.widgets.*]로 다운로드된 Mendix 위젯을 React 컴포넌트로 사용한다.
 //// gleam run -m glendix/install 실행 시 바인딩이 자동 생성된다.
 ////
 //// ```gleam

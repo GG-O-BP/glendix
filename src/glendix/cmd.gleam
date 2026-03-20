@@ -88,7 +88,7 @@ pub fn run_tool_dev() -> Nil {
 @external(javascript, "./cmd_ffi.mjs", "generate_bindings")
 pub fn generate_bindings() -> Nil
 
-/// widgets/ 디렉토리의 .mpk + build/widgets/ 캐시에서 위젯 컴포넌트 바인딩을 생성한다.
+/// build/widgets/ 캐시에서 위젯 컴포넌트 바인딩을 생성한다.
 /// glendix 빌드 경로에 widget_ffi.mjs와 위젯 에셋을 생성한다.
 @external(javascript, "./cmd_ffi.mjs", "generate_widget_bindings")
 pub fn generate_widget_bindings() -> Nil

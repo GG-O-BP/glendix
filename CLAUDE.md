@@ -5,7 +5,7 @@ React는 redraw/redraw_dom, TEA 패턴은 lustre에 위임한다.
 
 - 언어: Gleam (target: JavaScript)
 - 의존성: gleam_stdlib, redraw, redraw_dom, lustre
-- Peer deps (위젯 프로젝트): react ^19, react-dom ^19, big.js ^6
+- Peer deps (위젯 프로젝트): react ^19, react-dom ^19, big.js ^6 (decimal 속성 사용 시)
 
 Gleam 문법은 docs/gleam_language_tour.md 를 참조한다.
 
@@ -55,6 +55,9 @@ import redraw.{type Element}
 
 pub fn widget(props: JsProps) -> Element { ... }
 
+// 조건부 CSS 클래스
+mendix.cx([#("active", is_active), #("disabled", is_disabled)])
+
 // 외부 JS 컴포넌트 (widget/binding)
 import glendix/interop
 interop.component_el(comp, attrs, children)
@@ -77,11 +80,10 @@ gl.embed(redraw_element)  // lustre view 안에 redraw 삽입
 ## 바인딩 & 위젯
 
 - **외부 React 컴포넌트**: `gleam.toml [tools.glendix.bindings]` (우선) 또는 `bindings.json` (폴백) → `glendix/install` → `glendix/binding` 사용
-- **Pluggable .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` (자동 다운로드 → `build/widgets/` 캐시) 또는 `widgets/` 디렉토리 → `glendix/widget.component("Name")`
+- **Pluggable .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` (자동 다운로드 → `build/widgets/` 캐시) → `glendix/widget.component("Name")`
 - **위젯 prop 헬퍼**: `widget.prop(k, v)` / `widget.editable_prop(k, v, d, set)` / `widget.action_prop(k, fn)`
-- **Classic Dojo .mpk 위젯**: `widgets/` 디렉토리 → `glendix/classic.render(widget_id, props)`
+- **Classic Dojo .mpk 위젯**: `gleam.toml [tools.glendix.widgets.*]` → `glendix/classic.render(widget_id, props)`
 - `install` 시 TOML 위젯 다운로드/캐시 → `binding_ffi.mjs`, `widget_ffi.mjs`, `classic_ffi.mjs`, `src/widgets/*.gleam` 자동 생성
-- 이름 충돌 시 TOML(build/widgets/) 우선, widgets/*.mpk 폴백
 
 ## Editor Configuration (Jint 호환)
 
@@ -109,7 +111,7 @@ version = "3.0.0"
 ```
 
 - `install` 시 `[tools.glendix.widgets.*]`의 위젯을 `build/widgets/{name}/`에 다운로드/캐시
-- `meta.json`의 version과 TOML version 불일치 시 재다운로드
+- `meta.toml`의 version과 TOML version 불일치 시 재다운로드
 - `gleam clean` → `build/` 삭제 → 다음 install에서 재다운로드
 - marketplace TUI 다운로드 시 자동으로 gleam.toml에 위젯 항목 추가
 

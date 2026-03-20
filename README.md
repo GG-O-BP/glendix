@@ -49,7 +49,7 @@ Pop this into your `gleam.toml`:
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 3.0.2 and < 4.0.0"
+glendix = ">= 4.0.0 and < 5.0.0"
 ```
 
 ### Peer Dependencies
@@ -65,6 +65,8 @@ Your widget project's `package.json` needs these as well:
   }
 }
 ```
+
+> `big.js` is only needed if your widget uses Decimal attributes. Skip it if you don't!
 
 ## Let's Get Started!
 
@@ -140,7 +142,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/interop` | Renders external JS React components (from `widget`/`binding`) as `redraw.Element` |
 | `glendix/lustre` | Lustre TEA bridge — `use_tea`, `use_simple`, `render`, `embed` |
 | `glendix/binding` | For using other people's React components — configure in `gleam.toml` or `bindings.json` |
-| `glendix/widget` | For using `.mpk` widgets — auto-downloaded via `gleam.toml` or from `widgets/` folder — `component`, `prop`, `editable_prop`, `action_prop` |
+| `glendix/widget` | For using `.mpk` widgets — auto-downloaded via `gleam.toml` — `component`, `prop`, `editable_prop`, `action_prop` |
 | `glendix/classic` | Classic (Dojo) widget wrapper — `classic.render(widget_id, properties)` |
 | `glendix/marketplace` | Search and download widgets from the Mendix Marketplace (auto-saves to `gleam.toml`) |
 | `glendix/define` | Interactive TUI editor for widget property definitions |
@@ -159,7 +161,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/mendix/reference` | Single association (ReferenceValue) |
 | `glendix/mendix/reference_set` | Multiple associations (ReferenceSetValue) |
 | `glendix/mendix/date` | A wrapper for JS Date (months go from 1 in Gleam to 0 in JS automatically) |
-| `glendix/mendix/big` | Big.js wrapper for precise numbers |
+| `glendix/mendix/decimal` | Mendix Decimal boundary conversion (Big.js ↔ Gleam) |
 | `glendix/mendix/file` | `FileValue` and `WebImage` |
 | `glendix/mendix/icon` | `WebIcon` — Glyph, Image, IconFont |
 | `glendix/mendix/formatter` | `ValueFormatter` — `format` and `parse` |
@@ -309,9 +311,9 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### Using .mpk Widgets
 
-You can use Marketplace widgets as React components — either auto-downloaded via `gleam.toml` or placed manually in `widgets/`.
+You can use Marketplace widgets as React components — auto-downloaded via `gleam.toml`.
 
-**Option A: Auto-download via `gleam.toml` (recommended)**
+Register your widget in `gleam.toml` and run `gleam run -m glendix/install`:
 
 ```toml
 [tools.glendix.widgets.Charts]
@@ -319,15 +321,9 @@ version = "3.0.0"
 # s3_id = "com/..."   ← if you have this, no auth needed!
 ```
 
-Run `gleam run -m glendix/install` — it downloads to `build/widgets/` cache and generates everything automatically.
+It downloads to `build/widgets/` cache and generates everything automatically.
 
-**Option B: Manual `.mpk` files**
-
-**1. Pop your `.mpk` files into the `widgets/` folder**
-
-**2. Run `gleam run -m glendix/install`** (it sorts out all the bindings for you!)
-
-**3. Have a look at the auto-generated `src/widgets/*.gleam` files:**
+**Have a look at the auto-generated `src/widgets/*.gleam` files:**
 
 ```gleam
 // src/widgets/switch.gleam (made automatically!)

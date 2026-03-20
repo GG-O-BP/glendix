@@ -50,7 +50,7 @@ v3.0은 진짜 엄청나게 바뀌었어! `glendix/react` 레이어를 통째로
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 3.0.2 and < 4.0.0"
+glendix = ">= 4.0.0 and < 5.0.0"
 ```
 
 ### 같이 필요한 것들
@@ -66,6 +66,8 @@ glendix = ">= 3.0.2 and < 4.0.0"
   }
 }
 ```
+
+> `big.js`는 Decimal 속성을 쓰는 위젯만 필요해! 안 쓰면 빼도 돼!
 
 ## 자 이제 시작해보자!
 
@@ -141,7 +143,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/interop` | 외부 JS React 컴포넌트(`widget`/`binding`에서 가져온 거)를 `redraw.Element`로 렌더링! |
 | `glendix/lustre` | Lustre TEA 브릿지! — `use_tea`, `use_simple`, `render`, `embed` |
 | `glendix/binding` | 다른 사람이 만든 React 컴포넌트 쓰는 거! — `gleam.toml`이나 `bindings.json`에 설정하면 `.mjs` 안 만들어도 돼! |
-| `glendix/widget` | `.mpk` 위젯 쓰는 거! — `gleam.toml`로 자동 다운로드하거나 `widgets/` 폴더에 넣으면 돼! — `component`, `prop`, `editable_prop`, `action_prop` |
+| `glendix/widget` | `.mpk` 위젯 쓰는 거! — `gleam.toml`로 자동 다운로드! — `component`, `prop`, `editable_prop`, `action_prop` |
 | `glendix/classic` | 옛날 Classic (Dojo) 위젯 래퍼 — `classic.render(widget_id, properties)` 패턴 |
 | `glendix/marketplace` | Mendix Marketplace에서 위젯 검색하고 다운받는 거! (`gleam.toml`에 자동 저장!) |
 | `glendix/define` | 위젯 프로퍼티 정의 TUI 에디터! |
@@ -160,7 +162,7 @@ pub fn widget(_props: JsProps) -> Element {
 | `glendix/mendix/reference` | 하나랑 연결 (ReferenceValue) — 친구 한 명 가리키는 것 같은 거! |
 | `glendix/mendix/reference_set` | 여러 개랑 연결 (ReferenceSetValue) — 친구 여러 명 가리키는 거! |
 | `glendix/mendix/date` | JS Date 래퍼 (월이 Gleam에서는 1부터, JS에서는 0부터인데 알아서 바꿔줘! 똑똑하지?) |
-| `glendix/mendix/big` | Big.js 래퍼야! 엄청 정확한 숫자 쓸 때 필요해! |
+| `glendix/mendix/decimal` | Mendix Decimal 경계 변환! (Big.js ↔ Gleam) |
 | `glendix/mendix/file` | `FileValue`, `WebImage` |
 | `glendix/mendix/icon` | `WebIcon` — Glyph, Image, IconFont |
 | `glendix/mendix/formatter` | `ValueFormatter` — `format`이랑 `parse` |
@@ -310,9 +312,9 @@ pub fn my_chart(data) -> redraw.Element {
 
 ### .mpk 위젯 쓰기!
 
-Marketplace 위젯을 React 컴포넌트처럼 쓸 수 있어! `gleam.toml`로 자동 다운로드하거나 직접 `widgets/`에 넣으면 돼!
+Marketplace 위젯을 React 컴포넌트처럼 쓸 수 있어! `gleam.toml`에 등록하고 자동 다운로드하면 돼!
 
-**방법 A: `gleam.toml`로 자동 다운로드 (추천!)**
+`gleam.toml`에 위젯 설정하고 `gleam run -m glendix/install` 하면 끝!
 
 ```toml
 [tools.glendix.widgets.Charts]
@@ -320,15 +322,9 @@ version = "3.0.0"
 # s3_id = "com/..."   ← 이거 있으면 인증 없이 바로 다운받아!
 ```
 
-`gleam run -m glendix/install` 하면 `build/widgets/`에 캐시하고 바인딩도 다 만들어줘!
+`build/widgets/`에 캐시하고 바인딩도 다 만들어줘!
 
-**방법 B: `.mpk` 파일 직접 넣기**
-
-**1. `.mpk` 파일을 `widgets/` 폴더에 넣기!**
-
-**2. `gleam run -m glendix/install` 실행!** (바인딩 다 알아서 해줘!)
-
-**3. 자동으로 만들어진 `src/widgets/*.gleam` 파일을 확인해봐:**
+**자동으로 만들어진 `src/widgets/*.gleam` 파일을 확인해봐:**
 
 ```gleam
 // src/widgets/switch.gleam (자동으로 만들어진 거야!)

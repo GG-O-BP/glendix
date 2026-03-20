@@ -339,6 +339,17 @@ function readEnvValueSimple(key) {
   return null;
 }
 
+// 간단한 TOML key=value 파싱 (meta.toml 읽기용)
+function parseMetaToml(path) {
+  const content = readFileSync(path, "utf-8");
+  const result = {};
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^(\w+)\s*=\s*(.+)$/);
+    if (m) result[m[1]] = parseTomlValue(m[2].trim());
+  }
+  return result;
+}
+
 function downloadAndExtractToCache(name, version, id, url) {
   const cacheDir = `build/widgets/${name}`;
   if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
@@ -397,10 +408,28 @@ function downloadAndExtractToCache(name, version, id, url) {
       }
     }
 
-    // meta.json 기록
-    const meta = { version };
-    if (id != null) meta.id = id;
-    writeFileSync(`${cacheDir}/meta.json`, JSON.stringify(meta, null, 2));
+    // Classic 위젯 감지 (.mjs가 없으면 Classic)
+    const isClassic = !entries.some(e => e.endsWith(".mjs"));
+    if (isClassic) {
+      // Classic: .js, .html 파일을 ZIP 경로 구조 유지하여 추출
+      for (const entry of entries) {
+        if (entry.endsWith("/")) continue;
+        if (entry.endsWith(".js") || entry.endsWith(".html")) {
+          try {
+            const outPath = `${cacheDir}/${entry}`;
+            const dir = outPath.substring(0, outPath.lastIndexOf("/"));
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(outPath, readZipEntry(buf, entry));
+          } catch {}
+        }
+      }
+    }
+
+    // meta.toml 기록
+    let toml = `version = "${version}"\n`;
+    if (id != null) toml += `id = ${id}\n`;
+    if (isClassic) toml += `classic = true\n`;
+    writeFileSync(`${cacheDir}/meta.toml`, toml);
 
     try { unlinkSync(tmpPath); } catch {}
     console.log(`${name} v${version} — 캐시 완료`);
@@ -424,10 +453,10 @@ export function resolve_toml_widgets() {
     }
 
     // 캐시 확인
-    const metaPath = `build/widgets/${name}/meta.json`;
+    const metaPath = `build/widgets/${name}/meta.toml`;
     if (existsSync(metaPath)) {
       try {
-        const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+        const meta = parseMetaToml(metaPath);
         if (meta.version === widget.version) {
           console.log(`${name} v${widget.version} — 캐시 사용`);
           continue;
@@ -864,16 +893,6 @@ function generateWidgetGleamFile(widgetName, widgetXml) {
   console.log(`위젯 바인딩 Gleam 파일 생성: ${filePath}`);
 }
 
-// Classic .mpk 감지 — .mjs 파일이 없으면 Classic (Dojo) 위젯
-// Pluggable 위젯은 항상 .mjs를 포함하고, Classic은 .js만 포함한다
-function isClassicMpk(buf, entries) {
-  try {
-    return !entries.some(e => e.endsWith(".mjs"));
-  } catch {
-    return false;
-  }
-}
-
 // package.xml에서 모든 widgetFile path를 추출한다
 function extractAllWidgetFilePaths(packageXml) {
   const paths = [];
@@ -885,40 +904,38 @@ function extractAllWidgetFilePaths(packageXml) {
   return paths;
 }
 
-// 위젯 XML의 widget id="..." 속성에서 .mjs 파일 경로를 추론한다
-// 예: id="com.mendix.widget.web.areachart.AreaChart" → "com/mendix/widget/web/areachart/AreaChart.mjs"
-function findWidgetMjsEntry(widgetXml, entries) {
-  const idMatch = widgetXml.match(/widget\s+[^>]*id="([^"]+)"/);
-  if (!idMatch) return null;
-  const expectedPath = idMatch[1].replace(/\./g, "/") + ".mjs";
-  return entries.find(e => e === expectedPath) || null;
-}
-
-// 위젯 XML의 widget id="..." 속성에서 .css 파일 경로를 추론한다
-function findWidgetCssEntry(widgetXml, entries) {
-  const idMatch = widgetXml.match(/widget\s+[^>]*id="([^"]+)"/);
-  if (!idMatch) return null;
-  const expectedPath = idMatch[1].replace(/\./g, "/") + ".css";
-  return entries.find(e => e === expectedPath) || null;
-}
-
-// 위젯 디렉토리 외의 공유 .mjs/.css 파일을 식별한다
-function findSharedFiles(entries, widgetMjsPaths) {
-  const widgetDirs = new Set();
-  for (const mjsPath of widgetMjsPaths) {
-    const dir = mjsPath.substring(0, mjsPath.lastIndexOf("/") + 1);
-    widgetDirs.add(dir);
-  }
-
-  return entries.filter(e => {
-    if (e.endsWith("/")) return false;
-    if (!e.endsWith(".mjs") && !e.endsWith(".css")) return false;
-    // 위젯 디렉토리에 속하지 않는 파일만 공유 의존성으로 취급
-    for (const dir of widgetDirs) {
-      if (e.startsWith(dir)) return false;
+// 공통: [경로, 내용] 배열 → 분류된 객체
+function classifyClassicFiles(fileEntries) {
+  const jsFiles = {}, templateFiles = {}, libFiles = {};
+  let css = "";
+  for (const [path, content] of fileEntries) {
+    if (path.endsWith(".js")) {
+      if (path.includes("/lib/")) libFiles[path] = content;
+      else jsFiles[path] = content;
+    } else if (path.endsWith(".html")) {
+      templateFiles[path] = content;
+    } else if (path.endsWith(".css")) {
+      css += content + "\n";
     }
-    return true;
-  });
+  }
+  return { jsFiles, templateFiles, css: css.trim(), libFiles };
+}
+
+// 캐시 디렉토리에서 Classic 에셋을 읽어 분류한다
+function readClassicFromCache(cacheDir) {
+  const fileEntries = [];
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = `${dir}/${name}`;
+      if (statSync(full).isDirectory()) { walk(full); continue; }
+      if (name.endsWith(".js") || name.endsWith(".html") || name.endsWith(".css")) {
+        const rel = full.substring(cacheDir.length + 1).replace(/\\/g, "/");
+        fileEntries.push([rel, readFileSync(full, "utf-8")]);
+      }
+    }
+  }
+  walk(cacheDir);
+  return classifyClassicFiles(fileEntries);
 }
 
 // Classic 위젯 에셋 추출
@@ -949,35 +966,18 @@ function extractClassicWidget(buf, entries) {
   // 속성 파싱
   const properties = parseProperties(widgetXml);
 
-  // 파일 분류
-  const jsFiles = {};
-  const templateFiles = {};
-  let css = "";
-  const libFiles = {};
-
+  // 파일 분류 (공통 함수 사용)
+  const fileEntries = [];
   for (const entry of entries) {
     if (entry.endsWith("/") || entry === "package.xml" || entry === widgetXmlPath) continue;
-
+    if (!entry.endsWith(".js") && !entry.endsWith(".html") && !entry.endsWith(".css")) continue;
     try {
-      const content = readZipEntry(buf, entry);
-
-      if (entry.endsWith(".js")) {
-        if (entry.includes("/lib/")) {
-          libFiles[entry] = content.toString("utf-8");
-        } else {
-          jsFiles[entry] = content.toString("utf-8");
-        }
-      } else if (entry.endsWith(".html")) {
-        templateFiles[entry] = content.toString("utf-8");
-      } else if (entry.endsWith(".css")) {
-        css += content.toString("utf-8") + "\n";
-      }
-    } catch {
-      // 추출 실패한 파일은 무시
-    }
+      fileEntries.push([entry, readZipEntry(buf, entry).toString("utf-8")]);
+    } catch {}
   }
+  const { jsFiles, templateFiles, css, libFiles } = classifyClassicFiles(fileEntries);
 
-  return { name, widgetId, widgetXml, jsFiles, templateFiles, css: css.trim(), libFiles, properties };
+  return { name, widgetId, widgetXml, jsFiles, templateFiles, css, libFiles, properties };
 }
 
 // Classic 위젯의 .gleam 바인딩 파일을 src/widgets/에 생성한다
@@ -1254,15 +1254,13 @@ function generateClassicFfi(classicWidgets) {
   }
 }
 
-// widgets/ 디렉토리의 .mpk + build/widgets/ 캐시에서 위젯 바인딩을 생성한다
+// build/widgets/ 캐시에서 위젯 바인딩을 생성한다
 export function generate_widget_bindings() {
-  const hasWidgetsDir = existsSync("widgets");
   const hasCacheDir = existsSync("build/widgets");
-  if (!hasWidgetsDir && !hasCacheDir) return;
+  if (!hasCacheDir) return;
 
-  const widgets = []; // pluggable: { name, safeId, mjsContent, cssContent, mjsZipPath?, cssZipPath?, isMultiWidget? }
+  const widgets = []; // pluggable: { name, safeId, mjsContent, cssContent }
   const classicWidgets = []; // classic: { name, safeId, widgetId, jsFiles, templateFiles, css, libFiles }
-  const mpkSharedFiles = []; // multi-widget MPK 공유 의존성: { zipPath, content }
   const processedNames = new Set();
 
   // ── build/widgets/ 캐시에서 읽기 (TOML 기반, 우선) ──
@@ -1274,12 +1272,39 @@ export function generate_widget_bindings() {
         try {
           if (!statSync(cacheDir).isDirectory()) continue;
         } catch { continue; }
-        const metaPath = `${cacheDir}/meta.json`;
+        const metaPath = `${cacheDir}/meta.toml`;
         if (!existsSync(metaPath)) continue;
 
         const files = readdirSync(cacheDir);
         const mjsFile = files.find(f => f.endsWith(".mjs"));
-        if (!mjsFile) continue;
+        if (!mjsFile) {
+          // Classic 위젯: meta.toml의 classic 플래그 확인
+          try {
+            const meta = parseMetaToml(metaPath);
+            if (!meta.classic) continue;
+          } catch { continue; }
+
+          // widget XML에서 이름/ID/속성 파싱
+          const xmlFile = files.find(f => f.endsWith(".xml") && f !== "package.xml");
+          if (!xmlFile) continue;
+          const widgetXml = readFileSync(`${cacheDir}/${xmlFile}`, "utf-8");
+          const widgetName = parseWidgetName(widgetXml);
+          if (!widgetName || processedNames.has(widgetName)) continue;
+          const idMatch = widgetXml.match(/widget\s+[^>]*id="([^"]+)"/);
+          if (!idMatch) continue;
+
+          const { jsFiles, templateFiles, css, libFiles } = readClassicFromCache(cacheDir);
+          const properties = parseProperties(widgetXml);
+          generateClassicGleamFile(widgetName, idMatch[1], properties);
+          classicWidgets.push({
+            name: widgetName,
+            safeId: toSafeIdentifier(widgetName),
+            widgetId: idMatch[1],
+            jsFiles, templateFiles, css, libFiles,
+          });
+          processedNames.add(widgetName);
+          continue;
+        }
 
         const mjsContent = readFileSync(`${cacheDir}/${mjsFile}`);
         const cssFile = files.find(f => f.endsWith(".css") && !f.includes("editorPreview"));
@@ -1301,164 +1326,18 @@ export function generate_widget_bindings() {
     } catch {}
   }
 
-  // ── widgets/*.mpk에서 읽기 (기존 로직, 캐시에 없는 위젯만) ──
-  let mpkFiles = [];
-  if (hasWidgetsDir) {
-    try {
-      mpkFiles = readdirSync("widgets").filter((f) => f.endsWith(".mpk"));
-    } catch {}
-  }
-
-  if (mpkFiles.length === 0 && widgets.length === 0) return;
-
-  for (const mpkFile of mpkFiles) {
-    try {
-      const buf = readFileSync(`widgets/${mpkFile}`);
-      const entries = listZipEntries(buf);
-
-      // Classic .mpk 감지 — .mjs가 없으면 Classic (Dojo) 위젯
-      if (isClassicMpk(buf, entries)) {
-        const classic = extractClassicWidget(buf, entries);
-        if (!classic) {
-          console.log(`경고: ${mpkFile} Classic 위젯 추출 실패`);
-          continue;
-        }
-        if (processedNames.has(classic.name)) continue;
-
-        // Classic .gleam 바인딩 생성
-        generateClassicGleamFile(classic.name, classic.widgetId, classic.properties);
-
-        const safeId = toSafeIdentifier(classic.name);
-        classicWidgets.push({
-          name: classic.name,
-          safeId,
-          widgetId: classic.widgetId,
-          jsFiles: classic.jsFiles,
-          templateFiles: classic.templateFiles,
-          css: classic.css,
-          libFiles: classic.libFiles,
-        });
-        continue;
-      }
-
-      // ── Pluggable 위젯 처리 ──
-
-      // package.xml에서 모든 위젯 파일 경로 추출
-      const packageXml = readZipEntry(buf, "package.xml").toString("utf-8");
-      const widgetFilePaths = extractAllWidgetFilePaths(packageXml);
-      if (widgetFilePaths.length === 0) {
-        console.log(`경고: ${mpkFile}에서 widgetFile을 찾을 수 없습니다`);
-        continue;
-      }
-
-      if (widgetFilePaths.length === 1) {
-        // ── 단일 위젯 (기존 로직 유지) ──
-        const widgetXmlPath = widgetFilePaths[0];
-        const widgetXml = readZipEntry(buf, widgetXmlPath).toString("utf-8");
-        const widgetName = parseWidgetName(widgetXml);
-        if (!widgetName) {
-          console.log(`경고: ${mpkFile}에서 위젯 이름을 찾을 수 없습니다`);
-          continue;
-        }
-        if (processedNames.has(widgetName)) continue;
-
-        const mjsEntry = entries.find((e) => e.endsWith(".mjs"));
-        if (!mjsEntry) {
-          console.log(`경고: ${mpkFile}에서 .mjs 파일을 찾을 수 없습니다`);
-          continue;
-        }
-
-        const cssEntry = entries.find(
-          (e) => e.endsWith(".css") && !e.includes("editorPreview"),
-        );
-
-        const mjsContent = readZipEntry(buf, mjsEntry);
-        const cssContent = cssEntry ? readZipEntry(buf, cssEntry) : null;
-
-        generateWidgetGleamFile(widgetName, widgetXml);
-
-        const safeId = toSafeIdentifier(widgetName);
-        widgets.push({ name: widgetName, safeId, mjsContent, cssContent });
-
-      } else {
-        // ── 다중 위젯 (multi-widget MPK) ──
-        const widgetMjsPaths = [];
-
-        for (const widgetXmlPath of widgetFilePaths) {
-          let widgetXml;
-          try {
-            widgetXml = readZipEntry(buf, widgetXmlPath).toString("utf-8");
-          } catch {
-            console.log(`경고: ${mpkFile}에서 ${widgetXmlPath}를 읽을 수 없습니다`);
-            continue;
-          }
-
-          const widgetName = parseWidgetName(widgetXml);
-          if (!widgetName) {
-            console.log(`경고: ${mpkFile}의 ${widgetXmlPath}에서 위젯 이름을 찾을 수 없습니다`);
-            continue;
-          }
-          if (processedNames.has(widgetName)) continue;
-
-          const mjsEntry = findWidgetMjsEntry(widgetXml, entries);
-          if (!mjsEntry) {
-            console.log(`경고: ${mpkFile}의 ${widgetName}에서 .mjs 파일을 찾을 수 없습니다`);
-            continue;
-          }
-
-          const cssEntry = findWidgetCssEntry(widgetXml, entries);
-
-          const mjsContent = readZipEntry(buf, mjsEntry);
-          const cssContent = cssEntry ? readZipEntry(buf, cssEntry) : null;
-
-          generateWidgetGleamFile(widgetName, widgetXml);
-
-          // .mjs 파일명에서 실제 JS export 이름을 추출한다
-          // 예: "com/mendix/widget/web/areachart/AreaChart.mjs" → "AreaChart"
-          const mjsBaseName = mjsEntry.substring(mjsEntry.lastIndexOf("/") + 1).replace(/\.mjs$/, "");
-          const safeId = mjsBaseName;
-          widgetMjsPaths.push(mjsEntry);
-          widgets.push({
-            name: widgetName,
-            safeId,
-            mjsContent,
-            cssContent,
-            mjsZipPath: mjsEntry,
-            cssZipPath: cssEntry,
-            isMultiWidget: true,
-          });
-        }
-
-        // 공유 의존성 파일 수집
-        const sharedFiles = findSharedFiles(entries, widgetMjsPaths);
-        for (const sharedPath of sharedFiles) {
-          try {
-            const content = readZipEntry(buf, sharedPath);
-            mpkSharedFiles.push({ zipPath: sharedPath, content });
-          } catch {
-            // 추출 실패한 파일은 무시
-          }
-        }
-      }
-    } catch (e) {
-      console.log(`경고: ${mpkFile} 처리 실패: ${e.message}`);
-    }
-  }
+  if (widgets.length === 0 && classicWidgets.length === 0) return;
 
   // Pluggable 위젯 바인딩 (widget_ffi.mjs)
   if (widgets.length > 0) {
     const cssImports = widgets
       .filter((w) => w.cssContent)
-      .map((w) => w.isMultiWidget
-        ? `import "./widgets/${w.cssZipPath}";`
-        : `import "./widgets/${w.safeId}.css";`)
+      .map((w) => `import "./widgets/${w.safeId}.css";`)
       .join("\n");
     const mjsImports = widgets
       .map((w) => {
         const src = w.mjsContent ? w.mjsContent.toString("utf8") : "";
-        const path = w.isMultiWidget
-          ? `./widgets/${w.mjsZipPath}`
-          : `./widgets/${w.safeId}.mjs`;
+        const path = `./widgets/${w.safeId}.mjs`;
         if (hasDefaultExport(src)) {
           return `import ${w.safeId} from "${path}";`;
         }
@@ -1484,7 +1363,7 @@ export function generate_widget_bindings() {
       `const _widgets = {\n${widgetEntries}\n};\n\n` +
       `export function get_widget(name) {\n` +
       `  const w = _widgets[name];\n` +
-      `  if (!w) throw new Error("위젯 바인딩에 등록되지 않은 위젯: " + name + ". widgets/ 디렉토리를 확인하세요.");\n` +
+      `  if (!w) throw new Error("위젯 바인딩에 등록되지 않은 위젯: " + name + ". gleam.toml [tools.glendix.widgets] 설정을 확인하세요.");\n` +
       `  return w;\n` +
       `}\n`;
 
@@ -1515,29 +1394,10 @@ export function generate_widget_bindings() {
         }
 
         for (const w of widgets) {
-          if (w.isMultiWidget) {
-            // 다중 위젯: ZIP 경로 구조 유지
-            const mjsDir = `${widgetsDir}/${w.mjsZipPath.substring(0, w.mjsZipPath.lastIndexOf("/"))}`;
-            mkdirSync(mjsDir, { recursive: true });
-            writeFileSync(`${widgetsDir}/${w.mjsZipPath}`, w.mjsContent);
-            if (w.cssContent && w.cssZipPath) {
-              writeFileSync(`${widgetsDir}/${w.cssZipPath}`, w.cssContent);
-            }
-          } else {
-            // 단일 위젯: 플랫 구조
-            writeFileSync(`${widgetsDir}/${w.safeId}.mjs`, w.mjsContent);
-            if (w.cssContent) {
-              writeFileSync(`${widgetsDir}/${w.safeId}.css`, w.cssContent);
-            }
+          writeFileSync(`${widgetsDir}/${w.safeId}.mjs`, w.mjsContent);
+          if (w.cssContent) {
+            writeFileSync(`${widgetsDir}/${w.safeId}.css`, w.cssContent);
           }
-        }
-
-        // 공유 의존성 파일 추출 (디렉토리 구조 유지)
-        for (const sf of mpkSharedFiles) {
-          const sfPath = `${widgetsDir}/${sf.zipPath}`;
-          const sfDir = sfPath.substring(0, sfPath.lastIndexOf("/"));
-          mkdirSync(sfDir, { recursive: true });
-          writeFileSync(sfPath, sf.content);
         }
 
         written++;
