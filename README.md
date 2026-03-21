@@ -42,8 +42,8 @@ Pop this into your `gleam.toml`:
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 4.0.0 and < 5.0.0"
-mendraw = ">= 1.1.1 and < 2.0.0"
+glendix = ">= 4.0.1 and < 5.0.0"
+mendraw = ">= 1.1.9 and < 2.0.0"
 ```
 
 ### Peer Dependencies
@@ -369,7 +369,7 @@ gleam run -m mendraw/marketplace
   ── Page 1/5+ ──
 
   [0] Star Rating (54611) v3.2.2 — Mendix
-  [1] Switch (50324) v4.0.0 — Mendix
+  [1] Switch (50324) v4.0.1 — Mendix
   ...
 
   Number: download | Search term: filter by name | n: next | p: previous | r: reset | q: quit

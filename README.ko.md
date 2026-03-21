@@ -43,8 +43,8 @@ v4.0에서는 Mendix API 타입, 위젯 바인딩(.mpk), Classic 위젯, 마켓�
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 4.0.0 and < 5.0.0"
-mendraw = ">= 1.1.1 and < 2.0.0"
+glendix = ">= 4.0.1 and < 5.0.0"
+mendraw = ">= 1.1.9 and < 2.0.0"
 ```
 
 ### 같이 필요한 것들
@@ -371,7 +371,7 @@ gleam run -m mendraw/marketplace
   ── 페이지 1/5+ ──
 
   [0] Star Rating (54611) v3.2.2 — Mendix
-  [1] Switch (50324) v4.0.0 — Mendix
+  [1] Switch (50324) v4.0.1 — Mendix
   ...
 
   번호: 다운로드 | 검색어: 이름 검색 | n: 다음 | p: 이전 | r: 초기화 | q: 종료

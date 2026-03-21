@@ -57,7 +57,7 @@ gleam add mendraw@1
 
 ```toml
 [dependencies]
-mendraw = ">= 1.1.1 and < 2.0.0"
+mendraw = ">= 1.1.9 and < 2.0.0"
 ```
 
 mendraw는 `gleam_stdlib`, `gleam_javascript`, `redraw`, `redraw_dom`을 함께 가져온다.

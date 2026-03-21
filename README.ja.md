@@ -43,8 +43,8 @@ v4.0ではね、MendixのAPIかた、ウィジェットバインディング（.
 ```toml
 # gleam.toml
 [dependencies]
-glendix = ">= 4.0.0 and < 5.0.0"
-mendraw = ">= 1.1.1 and < 2.0.0"
+glendix = ">= 4.0.1 and < 5.0.0"
+mendraw = ">= 1.1.9 and < 2.0.0"
 ```
 
 ### いっしょにひつようなもの
@@ -371,7 +371,7 @@ gleam run -m mendraw/marketplace
   ── ページ 1/5+ ──
 
   [0] Star Rating (54611) v3.2.2 — Mendix
-  [1] Switch (50324) v4.0.0 — Mendix
+  [1] Switch (50324) v4.0.1 — Mendix
   ...
 
   番号: ダウンロード | 検索語: 名前検索 | n: 次へ | p: 前へ | r: リセット | q: 終了
