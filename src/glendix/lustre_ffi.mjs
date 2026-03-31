@@ -1,5 +1,12 @@
 // Lustre Element/Attribute → React Element 변환 FFI
-import { createElement, Fragment, useReducer, useEffect, useRef } from "react";
+import {
+  createElement,
+  Fragment,
+  useReducer,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
 // HTML 속성명 → React prop명 매핑
 const ATTR_MAP = {
@@ -26,6 +33,60 @@ function camelize(str) {
   return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
 
+// ── Style 변환 ──
+
+// Lustre style 문자열 "height:460px;width:300px;" → React style 객체
+function parseStyleString(str) {
+  const obj = {};
+  for (const part of str.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) continue;
+    const prop = trimmed.slice(0, colonIdx).trim();
+    const val = trimmed.slice(colonIdx + 1).trim();
+    if (prop && val) obj[camelize(prop)] = val;
+  }
+  return obj;
+}
+
+// ── Event debounce/throttle ──
+
+// dispatch(useReducer에서 stable)를 키로 이벤트별 타이머 상태 보관
+const _eventState = new WeakMap();
+
+function getEventState(dispatch) {
+  if (!_eventState.has(dispatch)) _eventState.set(dispatch, {});
+  return _eventState.get(dispatch);
+}
+
+// Lustre Event의 debounce/throttle 필드에 따라 dispatch를 래핑
+function wrapDispatch(dispatch, debounceMs, throttleMs, eventName) {
+  if (debounceMs <= 0 && throttleMs <= 0) return dispatch;
+
+  const state = getEventState(dispatch);
+
+  if (debounceMs > 0) {
+    const key = "d_" + eventName;
+    return function (msg) {
+      clearTimeout(state[key]);
+      state[key] = setTimeout(() => dispatch(msg), debounceMs);
+    };
+  }
+
+  // throttle
+  const key = "t_" + eventName;
+  return function (msg) {
+    const now = Date.now();
+    if (!state[key] || now - state[key] >= throttleMs) {
+      state[key] = now;
+      dispatch(msg);
+    }
+  };
+}
+
+// ── Attribute 변환 ──
+
 // Lustre Attribute 리스트 → React props 객체
 function convertAttrs(attrsList, dispatch) {
   const props = {};
@@ -40,21 +101,38 @@ function convertAttrs(attrsList, dispatch) {
 
       if (name === "class") {
         if (value) classNames.push(value);
-      } else if (name === "style" && value && typeof value.toArray === "function") {
-        // Lustre style: List(#(String, String)) → React style 객체
-        const styleObj = {};
-        for (const pair of value.toArray()) {
-          styleObj[camelize(pair[0])] = pair[1];
+      } else if (name === "style" && value) {
+        if (typeof value.toArray === "function") {
+          // Gleam List(#(String, String)) → React style 객체
+          const styleObj = {};
+          for (const pair of value.toArray()) {
+            styleObj[camelize(pair[0])] = pair[1];
+          }
+          props.style = styleObj;
+        } else if (typeof value === "string") {
+          props.style = parseStyleString(value);
+        } else {
+          // 이미 객체 (예: property("style", json.object([...])))
+          props.style = value;
         }
-        props.style = styleObj;
       } else {
         props[ATTR_MAP[name] || name] = value;
       }
     } else if (ctor === "Event") {
       // Lustre event name: "click" → React: "onClick"
-      const eventName = attr.name.startsWith("on") ? attr.name.slice(2) : attr.name;
+      const eventName = attr.name.startsWith("on")
+        ? attr.name.slice(2)
+        : attr.name;
       const reactKey =
         "on" + eventName.charAt(0).toUpperCase() + eventName.slice(1);
+
+      // debounce/throttle: preventDefault/stopPropagation은 즉시, dispatch만 지연
+      const wrappedDispatch = wrapDispatch(
+        dispatch,
+        attr.debounce || 0,
+        attr.throttle || 0,
+        attr.name,
+      );
 
       props[reactKey] = (event) => {
         // always (kind=2): 디코딩 결과와 무관하게 호출
@@ -72,7 +150,7 @@ function convertAttrs(attrsList, dispatch) {
           if (attr.stop_propagation.kind === 1 && handler.stop_propagation) {
             event.stopPropagation();
           }
-          dispatch(handler.message);
+          wrappedDispatch(handler.message);
         }
       };
     }
@@ -81,6 +159,8 @@ function convertAttrs(attrsList, dispatch) {
   if (classNames.length > 0) props.className = classNames.join(" ");
   return props;
 }
+
+// ── Element 변환 ──
 
 // redraw Element를 lustre 트리에 삽입하기 위한 마커
 const REACT_EMBED = Symbol.for("glendix.react_embed");
@@ -111,12 +191,16 @@ function convert(el, dispatch) {
     case "Element": {
       const props = convertAttrs(el.attributes, dispatch);
       if (el.key) props.key = el.key;
-      const children = el.children.toArray().map((c) => convert(c, dispatch));
+      const children = el.children
+        .toArray()
+        .map((c) => convert(c, dispatch));
       return createElement(el.tag, props, ...children);
     }
 
     case "Fragment": {
-      const children = el.children.toArray().map((c) => convert(c, dispatch));
+      const children = el.children
+        .toArray()
+        .map((c) => convert(c, dispatch));
       const fragmentProps = el.key ? { key: el.key } : null;
       return createElement(Fragment, fragmentProps, ...children);
     }
@@ -136,18 +220,17 @@ function convert(el, dispatch) {
   }
 }
 
-// Lustre Effect 실행
-function runEffect(effect, dispatch) {
-  const actions = {
+// ── Effect ──
+
+// Lustre Effect Actions 생성
+function makeActions(dispatch) {
+  return {
     dispatch,
     emit: () => {},
     select: () => {},
     root: () => {},
     provide: () => {},
   };
-  for (const fn of effect.synchronous.toArray()) fn(actions);
-  for (const fn of effect.before_paint.toArray()) fn(actions);
-  for (const fn of effect.after_paint.toArray()) fn(actions);
 }
 
 // Lustre Element를 React Element로 렌더링
@@ -155,7 +238,7 @@ export function render(element, dispatch) {
   return convert(element, dispatch);
 }
 
-// TEA 패턴 → useReducer + useEffect
+// TEA 패턴 → useReducer + useLayoutEffect/useEffect
 export function use_tea(init, update, view) {
   const effectRef = useRef(init[1]);
 
@@ -168,12 +251,22 @@ export function use_tea(init, update, view) {
     init[0],
   );
 
+  // synchronous + before_paint: DOM 변경 직후, 브라우저 페인트 전 실행
+  useLayoutEffect(() => {
+    const effect = effectRef.current;
+    if (!effect) return;
+    const actions = makeActions(dispatch);
+    for (const fn of effect.synchronous.toArray()) fn(actions);
+    for (const fn of effect.before_paint.toArray()) fn(actions);
+  });
+
+  // after_paint: 브라우저 페인트 후 실행
   useEffect(() => {
     const effect = effectRef.current;
     effectRef.current = null;
-    if (effect) {
-      runEffect(effect, dispatch);
-    }
+    if (!effect) return;
+    const actions = makeActions(dispatch);
+    for (const fn of effect.after_paint.toArray()) fn(actions);
   });
 
   return convert(view(model), dispatch);
