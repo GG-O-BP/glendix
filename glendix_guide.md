@@ -13,7 +13,7 @@ Its package boundary is explicit:
   `.mpk` assets;
 - **mxpak** owns Marketplace search, package download, cache, lockfiles, and
   workspace deduplication;
-- **chrobot_extra** owns generic browser automation.
+- **gleam_rover** owns generic browser automation.
 
 Glendix does not implement Marketplace access or browser automation.
 

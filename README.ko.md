@@ -11,7 +11,7 @@
   Lustre→React 브리지
 - **mendraw**: Mendix 클라이언트 값과 설치된 `.mpk` 자산의 타입 바인딩
 - **mxpak**: Marketplace 검색·다운로드·캐시·락파일·중복 제거
-- **chrobot_extra**: 범용 브라우저 자동화
+- **gleam_rover**: 범용 브라우저 자동화
 
 Glendix는 Marketplace나 브라우저 자동화를 구현하지 않는다.
 
