@@ -1,4 +1,11 @@
+**English** | [Korean](gleam-decimal.ko.md) | [Japanese](gleam-decimal.ja.md)
+
 # Gleam decimal library development
+
+> [!NOTE]
+> This is a historical design proposal, not the current Glendix API. Decimal
+> values are now owned by `mendraw/mendix/decimal`; the pure-Gleam arithmetic
+> API described below remains prospective.
 
 ## Goal
 
@@ -6,7 +13,8 @@ Replace the `big.js` npm dependency with a pure Gleam arbitrary-precision decima
 
 ## Current state
 
-`glendix/mendix/big` is an opaque FFI wrapper around Big.js:
+At the time this proposal was written, `glendix/mendix/big` was an opaque FFI
+wrapper around Big.js:
 
 ```
 big.gleam (pub type Big, 13 functions) → big_ffi.mjs → import Big from "big.js"

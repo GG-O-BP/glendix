@@ -1,0 +1,39 @@
+name: Glendix gates
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Glendix
+        uses: actions/checkout@v4
+        with:
+          path: glendix
+      - name: Check out local Mendraw dependency
+        uses: actions/checkout@v4
+        with:
+          repository: glendix-labs/mendraw
+          path: mendraw
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          gleam-version: "1.17.0"
+          rebar3-version: "3"
+      - uses: oven-sh/setup-bun@v2
+      - name: Validate Glendix
+        working-directory: glendix
+        run: |
+          gleam deps download
+          gleam format --check
+          gleam check
+          gleam build --warnings-as-errors
+          gleam docs build
+          gleam test --runtime bun

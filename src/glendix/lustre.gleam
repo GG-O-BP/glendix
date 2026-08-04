@@ -1,30 +1,61 @@
-// Lustre 브릿지 — Lustre 생태계를 React(redraw) 안에서 사용한다
+//// Adapts Lustre applications and effects to the Mendix widget runtime.
+////
 
-import lustre/effect.{type Effect}
-import lustre/element.{type Element as LustreElement}
-import redraw.{type Element}
+import lustre/effect
+import lustre/element
+import redraw
 
-/// Lustre Element를 React Element로 변환한다
-@external(javascript, "./lustre_ffi.mjs", "render")
-pub fn render(element: LustreElement(msg), dispatch: fn(msg) -> Nil) -> Element
+/// Renders a Lustre application as a Mendix widget element.
+pub fn render(
+  element element: element.Element(msg),
+  dispatch dispatch: fn(msg) -> Nil,
+) -> redraw.Element {
+  render_raw(element, dispatch)
+}
 
-/// TEA 패턴 훅 — useReducer + Effect 실행
-@external(javascript, "./lustre_ffi.mjs", "use_tea")
+/// Starts a Lustre TEA application inside a Mendix widget.
 pub fn use_tea(
-  init: #(model, Effect(msg)),
-  update: fn(model, msg) -> #(model, Effect(msg)),
-  view: fn(model) -> LustreElement(msg),
-) -> Element
+  init init: #(model, effect.Effect(msg)),
+  update update: fn(model, msg) -> #(model, effect.Effect(msg)),
+  view view: fn(model) -> element.Element(msg),
+) -> redraw.Element {
+  use_tea_raw(init, update, view)
+}
 
-/// Simple TEA 훅 — Effect 없는 간단한 상태 관리
-@external(javascript, "./lustre_ffi.mjs", "use_simple")
+/// Starts a simple Lustre component inside a Mendix widget.
 pub fn use_simple(
-  init: model,
-  update: fn(model, msg) -> model,
-  view: fn(model) -> LustreElement(msg),
-) -> Element
+  init init: model,
+  update update: fn(model, msg) -> model,
+  view view: fn(model) -> element.Element(msg),
+) -> redraw.Element {
+  use_simple_raw(init, update, view)
+}
 
-/// redraw Element를 lustre 트리 안에 삽입한다
-/// lustre view 내에서 redraw 컴포넌트를 사용할 때 호출한다
+/// Embeds a Lustre component in a Mendix widget element.
+pub fn embed(element element: redraw.Element) -> element.Element(msg) {
+  embed_raw(element)
+}
+
+// -- FFI --
+@external(javascript, "./lustre_ffi.mjs", "render")
+fn render_raw(
+  element element: element.Element(msg),
+  dispatch dispatch: fn(msg) -> Nil,
+) -> redraw.Element
+
+@external(javascript, "./lustre_ffi.mjs", "use_tea")
+fn use_tea_raw(
+  init init: #(model, effect.Effect(msg)),
+  update update: fn(model, msg) -> #(model, effect.Effect(msg)),
+  view view: fn(model) -> element.Element(msg),
+) -> redraw.Element
+
+@external(javascript, "./lustre_ffi.mjs", "use_simple")
+fn use_simple_raw(
+  init init: model,
+  update update: fn(model, msg) -> model,
+  view view: fn(model) -> element.Element(msg),
+) -> redraw.Element
+
 @external(javascript, "./lustre_ffi.mjs", "embed")
-pub fn embed(element: Element) -> LustreElement(msg)
+fn embed_raw(element element: redraw.Element) -> element.Element(msg)

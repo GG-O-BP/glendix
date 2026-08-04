@@ -1,42 +1,99 @@
-// Promise 유틸리티 — 체이닝, 에러 처리, 병렬 실행
+//// Provides typed Promise composition at the JavaScript FFI boundary.
+////
 
-import gleam/dynamic.{type Dynamic}
-import gleam/javascript/promise.{type Promise}
+import gleam/javascript/promise
 
-/// 값을 즉시 이행된 Promise로 래핑
-@external(javascript, "./promise_ffi.mjs", "promise_resolve")
-pub fn resolve(value: a) -> Promise(a)
+/// Represents a JavaScript Promise rejection reason.
+pub type PromiseRejection
 
-/// 거부된 Promise 생성
-@external(javascript, "./promise_ffi.mjs", "promise_reject")
-pub fn reject(reason: String) -> Promise(a)
+/// Creates an already fulfilled Promise.
+pub fn resolve(value value: value) -> promise.Promise(value) {
+  resolve_raw(value)
+}
 
-/// Promise 체이닝 (flatMap)
-@external(javascript, "./promise_ffi.mjs", "promise_then")
+/// Creates a rejected Promise with an error message.
+pub fn reject(reason reason: String) -> promise.Promise(value) {
+  reject_raw(reason)
+}
+
+/// Chains a Promise-producing callback.
 pub fn then_(
-  promise: Promise(a),
-  callback: fn(a) -> Promise(b),
-) -> Promise(b)
+  promise promise: promise.Promise(value),
+  with callback: fn(value) -> promise.Promise(next),
+) -> promise.Promise(next) {
+  then_raw(promise, callback)
+}
 
-/// Promise 에러 처리
-@external(javascript, "./promise_ffi.mjs", "promise_catch")
+/// Recovers from a Promise rejection.
 pub fn catch_(
-  promise: Promise(a),
-  callback: fn(Dynamic) -> Promise(a),
-) -> Promise(a)
+  promise promise: promise.Promise(value),
+  with callback: fn(PromiseRejection) -> promise.Promise(value),
+) -> promise.Promise(value) {
+  catch_raw(promise, callback)
+}
 
-/// Promise 값 변환 (map)
+/// Maps a fulfilled Promise value.
+pub fn map(
+  promise promise: promise.Promise(value),
+  with callback: fn(value) -> next,
+) -> promise.Promise(next) {
+  map_raw(promise, callback)
+}
+
+/// Waits for every Promise to fulfill.
+pub fn all(
+  promises promises: List(promise.Promise(value)),
+) -> promise.Promise(List(value)) {
+  all_raw(promises)
+}
+
+/// Resolves or rejects with the first completed Promise.
+pub fn race(
+  promises promises: List(promise.Promise(value)),
+) -> promise.Promise(value) {
+  race_raw(promises)
+}
+
+/// Runs a callback after a Promise fulfills.
+pub fn await_(
+  promise promise: promise.Promise(value),
+  then callback: fn(value) -> Nil,
+) -> Nil {
+  await_raw(promise, callback)
+}
+
+// -- FFI --
+@external(javascript, "./promise_ffi.mjs", "promise_resolve")
+fn resolve_raw(value: value) -> promise.Promise(value)
+
+@external(javascript, "./promise_ffi.mjs", "promise_reject")
+fn reject_raw(reason: String) -> promise.Promise(value)
+
+@external(javascript, "./promise_ffi.mjs", "promise_then")
+fn then_raw(
+  promise: promise.Promise(value),
+  callback: fn(value) -> promise.Promise(next),
+) -> promise.Promise(next)
+
+@external(javascript, "./promise_ffi.mjs", "promise_catch")
+fn catch_raw(
+  promise: promise.Promise(value),
+  callback: fn(PromiseRejection) -> promise.Promise(value),
+) -> promise.Promise(value)
+
 @external(javascript, "./promise_ffi.mjs", "promise_map")
-pub fn map(promise: Promise(a), callback: fn(a) -> b) -> Promise(b)
+fn map_raw(
+  promise: promise.Promise(value),
+  callback: fn(value) -> next,
+) -> promise.Promise(next)
 
-/// 모든 Promise가 이행될 때까지 대기
 @external(javascript, "./promise_ffi.mjs", "promise_all")
-pub fn all(promises: List(Promise(a))) -> Promise(List(a))
+fn all_raw(
+  promises: List(promise.Promise(value)),
+) -> promise.Promise(List(value))
 
-/// 가장 먼저 이행/거부되는 Promise 반환
 @external(javascript, "./promise_ffi.mjs", "promise_race")
-pub fn race(promises: List(Promise(a))) -> Promise(a)
+fn race_raw(promises: List(promise.Promise(value))) -> promise.Promise(value)
 
-/// Promise 이행 시 콜백 실행 (반환값 무시)
 @external(javascript, "./promise_ffi.mjs", "promise_await")
-pub fn await_(promise: Promise(a), callback: fn(a) -> Nil) -> Nil
+fn await_raw(promise: promise.Promise(value), callback: fn(value) -> Nil) -> Nil

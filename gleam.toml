@@ -1,8 +1,8 @@
 name = "glendix"
-version = "4.0.5"
+version = "5.0.0"
 gleam = ">= 1.17.0"
 target = "javascript"
-description = "Gleam bindings for Mendix Pluggable Widget API — delegates React to redraw/redraw_dom, TEA to lustre, Mendix types/widgets/marketplace to mendraw"
+description = "Mendix widget build tooling with external React bindings and a Lustre bridge"
 licences = ["BlueOak-1.0.0"]
 repository = { type = "github", user = "glendix-labs", repo = "glendix" }
 
@@ -12,9 +12,13 @@ runtime = "node"
 
 [dependencies]
 gleam_stdlib = ">= 1.0.3 and < 2.0.0"
+gleam_json = ">= 3.1.0 and < 4.0.0"
 etch = ">= 1.4.0 and < 2.0.0"
 gleam_javascript = ">= 1.0.1 and < 2.0.0"
 redraw = ">= 19.2.2 and < 20.0.0"
 redraw_dom = ">= 19.2.2 and < 20.0.0"
 lustre = ">= 5.7.1 and < 6.0.0"
 mendraw = { path = "../mendraw" }
+
+[dev_dependencies]
+gleeunit = ">= 1.11.0 and < 2.0.0"

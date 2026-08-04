@@ -1,43 +1,159 @@
-// JS 객체 생성, 조작, 메서드 호출
+//// Creates and manipulates typed JavaScript object handles.
+////
 
-import gleam/dynamic.{type Dynamic}
+/// Represents a JavaScript value whose runtime shape is intentionally opaque.
+pub type JsValue
 
-/// 키-값 쌍 리스트로 JS 객체 생성
-@external(javascript, "./object_ffi.mjs", "create_object")
-pub fn object(entries: List(#(String, Dynamic))) -> Dynamic
+/// Represents a JavaScript object handle.
+pub type JsObject
 
-/// 빈 JS 객체 생성
-@external(javascript, "./object_ffi.mjs", "empty_object")
-pub fn empty() -> Dynamic
+/// Represents a JavaScript constructor handle.
+pub type JsConstructor
 
-/// 객체 속성 읽기
-@external(javascript, "./object_ffi.mjs", "get_property")
-pub fn get(obj: Dynamic, key: String) -> Dynamic
+/// Represents a JavaScript boolean value.
+pub type JsBoolean {
+  /// JavaScript `true`.
+  TrueValue
+  /// JavaScript `false`.
+  FalseValue
+}
 
-/// 객체 속성 설정 (mutation, 원본 반환)
-@external(javascript, "./object_ffi.mjs", "set_property")
-pub fn set(obj: Dynamic, key: String, value: Dynamic) -> Dynamic
+/// Converts a string into a JavaScript value.
+pub fn string(value value: String) -> JsValue {
+  string_raw(value)
+}
 
-/// 객체 속성 삭제 (mutation, 원본 반환)
-@external(javascript, "./object_ffi.mjs", "delete_property")
-pub fn delete(obj: Dynamic, key: String) -> Dynamic
+/// Converts an integer into a JavaScript value.
+pub fn int(value value: Int) -> JsValue {
+  int_raw(value)
+}
 
-/// 속성 존재 확인
-@external(javascript, "./object_ffi.mjs", "has_property")
-pub fn has(obj: Dynamic, key: String) -> Bool
+/// Converts a float into a JavaScript value.
+pub fn float(value value: Float) -> JsValue {
+  float_raw(value)
+}
 
-/// 메서드 호출 (인자 리스트)
-@external(javascript, "./object_ffi.mjs", "call_method")
+/// Converts a typed JavaScript boolean into a JavaScript value.
+pub fn bool(value value: JsBoolean) -> JsValue {
+  bool_raw(case value {
+    TrueValue -> True
+    FalseValue -> False
+  })
+}
+
+/// Converts an object handle into a JavaScript value.
+pub fn from_object(object object: JsObject) -> JsValue {
+  object_value_raw(object)
+}
+
+/// Creates an object from key-value entries.
+pub fn from_entries(entries entries: List(#(String, JsValue))) -> JsObject {
+  create_object_raw(entries)
+}
+
+/// Creates an empty object.
+pub fn empty() -> JsObject {
+  empty_object_raw()
+}
+
+/// Reads an object property.
+pub fn get(from object: JsObject, key key: String) -> JsValue {
+  get_property_raw(object, key)
+}
+
+/// Mutates an object property and returns the same object handle.
+pub fn set(
+  on object: JsObject,
+  key key: String,
+  to value: JsValue,
+) -> JsObject {
+  set_property_raw(object, key, value)
+}
+
+/// Deletes an object property and returns the same object handle.
+pub fn delete(from object: JsObject, key key: String) -> JsObject {
+  delete_property_raw(object, key)
+}
+
+/// Reports whether an object has the given property.
+pub fn has(in object: JsObject, key key: String) -> Bool {
+  has_property_raw(object, key)
+}
+
+/// Calls an object method with a list of arguments.
 pub fn call_method(
-  obj: Dynamic,
+  on object: JsObject,
+  named method: String,
+  with arguments: List(JsValue),
+) -> JsValue {
+  call_method_raw(object, method, arguments)
+}
+
+/// Calls an object method without arguments.
+pub fn call_method_without_arguments(
+  on object: JsObject,
+  named method: String,
+) -> JsValue {
+  call_method_without_arguments_raw(object, method)
+}
+
+/// Creates an object with JavaScript's `new` operator.
+pub fn new_instance(
+  using constructor: JsConstructor,
+  with arguments: List(JsValue),
+) -> JsObject {
+  new_instance_raw(constructor, arguments)
+}
+
+// -- FFI --
+@external(javascript, "./object_ffi.mjs", "identity")
+fn string_raw(value: String) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "identity")
+fn int_raw(value: Int) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "identity")
+fn float_raw(value: Float) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "identity")
+fn bool_raw(value: Bool) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "identity")
+fn object_value_raw(value: JsObject) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "create_object")
+fn create_object_raw(entries: List(#(String, JsValue))) -> JsObject
+
+@external(javascript, "./object_ffi.mjs", "empty_object")
+fn empty_object_raw() -> JsObject
+
+@external(javascript, "./object_ffi.mjs", "get_property")
+fn get_property_raw(object: JsObject, key: String) -> JsValue
+
+@external(javascript, "./object_ffi.mjs", "set_property")
+fn set_property_raw(object: JsObject, key: String, value: JsValue) -> JsObject
+
+@external(javascript, "./object_ffi.mjs", "delete_property")
+fn delete_property_raw(object: JsObject, key: String) -> JsObject
+
+@external(javascript, "./object_ffi.mjs", "has_property")
+fn has_property_raw(object: JsObject, key: String) -> Bool
+
+@external(javascript, "./object_ffi.mjs", "call_method")
+fn call_method_raw(
+  object: JsObject,
   method: String,
-  args: List(Dynamic),
-) -> Dynamic
+  arguments: List(JsValue),
+) -> JsValue
 
-/// 인자 없는 메서드 호출
 @external(javascript, "./object_ffi.mjs", "call_method_0")
-pub fn call_method_0(obj: Dynamic, method: String) -> Dynamic
+fn call_method_without_arguments_raw(
+  object: JsObject,
+  method: String,
+) -> JsValue
 
-/// new 연산자로 인스턴스 생성
 @external(javascript, "./object_ffi.mjs", "new_instance")
-pub fn new_instance(constructor: Dynamic, args: List(Dynamic)) -> Dynamic
+fn new_instance_raw(
+  constructor: JsConstructor,
+  arguments: List(JsValue),
+) -> JsObject

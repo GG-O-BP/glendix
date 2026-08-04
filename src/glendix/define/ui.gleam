@@ -1,50 +1,83 @@
-// 위젯 XML 속성 정의 에디터 — UI 렌더링
+//// Renders screens for the interactive Glendix widget definition editor.
+////
 
 import etch/style
-import glendix/define/types.{
-  type EnumValue, type Property, type PropertyGroup, type PropertyItem,
-  type WidgetMeta, PropItem, Property, ReturnType,
-  SysPropItem, WidgetMeta,
-}
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
 import gleam/string
+import glendix/define/model
 
-// ── 편집 폼 필드 ──
-
+/// A typed `EditField` value used by the ui capability.
 pub type EditField {
+  /// The `TextField` variant.
   TextField(label: String, value: String)
+  /// The `BoolField` variant.
   BoolField(label: String, value: Bool)
+  /// The `ReadOnlyField` variant.
   ReadOnlyField(label: String, value: String)
+  /// The `ListField` variant.
   ListField(label: String, count: Int)
+  /// The `SelectField` variant.
   SelectField(label: String, value: String)
 }
 
-// ── 트리뷰 화면 ──
+/// Represents whether the editor has unsaved changes.
+pub type ChangeState {
+  /// The rendered model is saved.
+  Saved
+  /// The rendered model contains unsaved changes.
+  Modified
+}
 
-/// 메인 트리뷰 화면을 문자열로 생성한다.
+/// Represents whether a text field is actively being edited.
+pub type EditMode {
+  /// The field is displayed without an active text cursor.
+  Viewing
+  /// The field is displayed with an active text cursor.
+  Editing
+}
+
+/// A typed `TreeRow` value used by the ui capability.
+pub type TreeRow {
+  /// The `GroupRow` variant.
+  GroupRow(
+    flat_index: Int,
+    group_index: Int,
+    caption: String,
+    item_count: Int,
+    is_collapsed: Bool,
+  )
+  /// The `PropertyRow` variant.
+  PropertyRow(
+    flat_index: Int,
+    group_index: Int,
+    item_index: Int,
+    prop: model.Property,
+  )
+  /// The `SystemRow` variant.
+  SystemRow(flat_index: Int, group_index: Int, item_index: Int, key: String)
+}
+
+/// Renders the tree screen.
 pub fn render_tree_screen(
-  widget_name: String,
-  groups: List(PropertyGroup),
-  cursor: Int,
-  collapsed: List(Int),
-  dirty: Bool,
-  status_msg: Option(String),
-  scroll_offset: Int,
-  term_rows: Int,
+  widget_name widget_name: String,
+  groups groups: List(model.PropertyGroup),
+  cursor cursor: Int,
+  collapsed collapsed: List(Int),
+  changes changes: ChangeState,
+  status_msg status_msg: option.Option(String),
+  scroll_offset scroll_offset: Int,
+  term_rows term_rows: Int,
 ) -> String {
-  let dirty_mark = case dirty {
-    True -> " " <> style.yellow("● 변경사항")
-    False -> ""
+  let dirty_mark = case changes {
+    Modified -> " " <> style.yellow("● 변경사항")
+    Saved -> ""
   }
   let header =
     "  "
-    <> style.bold(style.cyan(
-      "── Widget Properties: " <> widget_name <> " ──",
-    ))
+    <> style.bold(style.cyan("── Widget Properties: " <> widget_name <> " ──"))
     <> dirty_mark
-
   let rows = build_tree_rows(groups, collapsed, 0, 0)
   let visible_rows = case term_rows > 6 {
     True -> term_rows - 6
@@ -54,60 +87,31 @@ pub fn render_tree_screen(
     rows
     |> list.drop(scroll_offset)
     |> list.take(visible_rows)
-
   let body = case display_rows {
     [] -> "    " <> style.dim("속성이 없습니다. a로 속성을 추가하세요.")
     _ ->
       display_rows
-      |> list.map(fn(row) {
-        render_tree_row(row, row.flat_index == cursor)
-      })
+      |> list.map(fn(row) { render_tree_row(row, row.flat_index == cursor) })
       |> string.join("\n")
   }
-
   let status_line = case status_msg {
-    Some(msg) -> "\n  " <> msg
-    None -> ""
+    option.Some(msg) -> "\n  " <> msg
+    option.None -> ""
   }
-
   let help =
     "\n  "
     <> style.dim(
       "↑↓ 이동 · Tab 접기 · Enter 편집 · w 위젯 정보 · a 속성 · g 그룹 · p 시스템 · d 삭제 · s 저장 · q 종료",
     )
-
   header <> "\n\n" <> body <> "\n" <> status_line <> help <> "\n"
 }
 
-/// 트리뷰 행 데이터
-pub type TreeRow {
-  GroupRow(
-    flat_index: Int,
-    group_index: Int,
-    caption: String,
-    item_count: Int,
-    is_collapsed: Bool,
-  )
-  PropertyRow(
-    flat_index: Int,
-    group_index: Int,
-    item_index: Int,
-    prop: Property,
-  )
-  SystemRow(
-    flat_index: Int,
-    group_index: Int,
-    item_index: Int,
-    key: String,
-  )
-}
-
-/// 그룹/속성을 평탄화한 행 목록을 생성한다.
+/// Builds the tree rows.
 pub fn build_tree_rows(
-  groups: List(PropertyGroup),
-  collapsed: List(Int),
-  group_start: Int,
-  flat_start: Int,
+  groups groups: List(model.PropertyGroup),
+  collapsed collapsed: List(Int),
+  group_start group_start: Int,
+  flat_start flat_start: Int,
 ) -> List(TreeRow) {
   case groups {
     [] -> []
@@ -117,7 +121,6 @@ pub fn build_tree_rows(
       let item_count = list.length(group.items)
       let group_row =
         GroupRow(flat_start, gi, group.caption, item_count, is_collapsed)
-
       case is_collapsed {
         True -> {
           [
@@ -126,8 +129,7 @@ pub fn build_tree_rows(
           ]
         }
         False -> {
-          let item_rows =
-            build_item_rows(group.items, gi, 0, flat_start + 1)
+          let item_rows = build_item_rows(group.items, gi, 0, flat_start + 1)
           let next_flat = flat_start + 1 + list.length(group.items)
           [
             group_row,
@@ -142,124 +144,10 @@ pub fn build_tree_rows(
   }
 }
 
-fn build_item_rows(
-  items: List(PropertyItem),
-  group_index: Int,
-  item_start: Int,
-  flat_start: Int,
-) -> List(TreeRow) {
-  case items {
-    [] -> []
-    [item, ..rest] -> {
-      let row = case item {
-        PropItem(prop) ->
-          PropertyRow(flat_start, group_index, item_start, prop)
-        SysPropItem(sys) ->
-          SystemRow(flat_start, group_index, item_start, sys.key)
-      }
-      [row, ..build_item_rows(rest, group_index, item_start + 1, flat_start + 1)]
-    }
-  }
-}
-
-fn render_tree_row(row: TreeRow, is_cursor: Bool) -> String {
-  case row {
-    GroupRow(_, _, caption, count, is_collapsed) -> {
-      let marker = case is_cursor {
-        True -> style.cyan("  ▸ ")
-        False -> "    "
-      }
-      let fold_icon = case is_collapsed {
-        True -> style.dim("▸ ")
-        False -> style.dim("▾ ")
-      }
-      let name = case is_cursor {
-        True -> style.bold(style.cyan("[" <> caption <> "]"))
-        False -> style.bold("[" <> caption <> "]")
-      }
-      let suffix = case is_collapsed {
-        True ->
-          "  "
-          <> style.dim(
-            "(접힘, " <> int.to_string(count) <> "개 항목)",
-          )
-        False -> ""
-      }
-      marker <> fold_icon <> name <> suffix
-    }
-
-    PropertyRow(_, _, _, prop) -> {
-      let marker = case is_cursor {
-        True -> style.cyan("    ▸ ")
-        False -> "      "
-      }
-      let type_str =
-        style.dim(types.type_to_string(prop.type_))
-        |> pad_right(16)
-      let req_str = case prop.required {
-        Some(True) -> style.yellow("*필수")
-        _ -> ""
-      }
-      let default_str = case prop.default_value {
-        Some(v) -> " = " <> style.dim(v)
-        None -> ""
-      }
-      let key_str = case is_cursor {
-        True -> style.bold(style.cyan(prop.key))
-        False -> style.bold(prop.key)
-      }
-      marker <> key_str |> pad_right(20) <> type_str <> req_str <> default_str
-    }
-
-    SystemRow(_, _, _, key) -> {
-      let marker = case is_cursor {
-        True -> style.cyan("    ▸ ")
-        False -> "      "
-      }
-      let icon = style.dim("◇ ")
-      let name = case is_cursor {
-        True -> style.cyan(key)
-        False -> key
-      }
-      marker <> icon <> name <> "  " <> style.dim("(system)")
-    }
-  }
-}
-
-/// 문자열 내 커서 위치를 시각적으로 렌더링한다.
-/// 커서 앞 텍스트 | 반전된 커서 문자 | 커서 뒤 텍스트
-fn render_text_cursor(buffer: String, cursor_pos: Int) -> String {
-  let before = string.slice(buffer, 0, cursor_pos)
-  let at_cursor = string.slice(buffer, cursor_pos, 1)
-  let after = string.drop_start(buffer, cursor_pos + 1)
-  case at_cursor {
-    "" ->
-      // 커서가 문자열 끝에 있음
-      style.cyan(before) <> style.dim("█")
-    ch ->
-      // 커서가 문자열 중간에 있음 — 해당 문자를 반전 표시
-      style.cyan(before)
-      <> style.inverse(style.cyan(ch))
-      <> style.cyan(after)
-  }
-}
-
-fn pad_right(s: String, width: Int) -> String {
-  let len = string.length(s)
-  case len >= width {
-    True -> s
-    False -> s <> string.repeat(" ", width - len)
-  }
-}
-
-// ── 타입 선택 화면 ──
-
-/// 타입 선택 화면을 문자열로 생성한다.
-pub fn render_type_select_screen(cursor: Int) -> String {
-  let header =
-    "  " <> style.bold(style.cyan("── 속성 타입 선택 ──"))
-
-  let all = types.all_types()
+/// Renders the type select screen.
+pub fn render_type_select_screen(cursor cursor: Int) -> String {
+  let header = "  " <> style.bold(style.cyan("── 속성 타입 선택 ──"))
+  let all = model.all_types()
   let body =
     all
     |> list.index_map(fn(t, idx) {
@@ -268,8 +156,8 @@ pub fn render_type_select_screen(cursor: Int) -> String {
         True -> style.cyan("  ▸ ")
         False -> "    "
       }
-      let type_name = types.type_to_string(t)
-      let label = types.type_label(t)
+      let type_name = model.type_to_string(t)
+      let label = model.type_label(t)
       let name_styled = case is_cur {
         True -> style.bold(style.cyan(type_name |> pad_right(16)))
         False -> type_name |> pad_right(16)
@@ -289,31 +177,25 @@ pub fn render_type_select_screen(cursor: Int) -> String {
       show_category <> marker <> name_styled <> " — " <> style.dim(label)
     })
     |> string.join("\n")
-
-  let help =
-    "\n  " <> style.dim("↑↓ 이동 · Enter 선택 · Esc 취소")
-
+  let help = "\n  " <> style.dim("↑↓ 이동 · Enter 선택 · Esc 취소")
   header <> "\n\n" <> body <> "\n" <> help <> "\n"
 }
 
-// ── 속성 편집 폼 화면 ──
-
-/// 속성 편집 폼 화면을 문자열로 생성한다.
+/// Renders the edit screen.
 pub fn render_edit_screen(
-  prop_key: String,
-  prop_type: String,
-  fields: List(EditField),
-  cursor: Int,
-  editing: Bool,
-  edit_buffer: String,
-  edit_cursor_pos: Int,
+  prop_key prop_key: String,
+  prop_type prop_type: String,
+  fields fields: List(EditField),
+  cursor cursor: Int,
+  mode mode: EditMode,
+  edit_buffer edit_buffer: String,
+  edit_cursor_pos edit_cursor_pos: Int,
 ) -> String {
   let header =
     "  "
     <> style.bold(style.cyan(
       "── 속성 편집: " <> prop_key <> " (" <> prop_type <> ") ──",
     ))
-
   let body =
     fields
     |> list.index_map(fn(field, idx) {
@@ -324,18 +206,14 @@ pub fn render_edit_screen(
       }
       case field {
         ReadOnlyField(label, value) ->
-          marker
-          <> style.dim(label |> pad_right(16))
-          <> style.dim(value)
-
+          marker <> style.dim(label |> pad_right(16)) <> style.dim(value)
         TextField(label, value) -> {
-          let display = case is_cur && editing {
-            True -> render_text_cursor(edit_buffer, edit_cursor_pos)
-            False -> value
+          let display = case is_cur, mode {
+            True, Editing -> render_text_cursor(edit_buffer, edit_cursor_pos)
+            True, Viewing | False, Editing | False, Viewing -> value
           }
           marker <> label |> pad_right(16) <> display
         }
-
         BoolField(label, value) -> {
           let display = case value {
             True -> style.green("true")
@@ -347,7 +225,6 @@ pub fn render_edit_screen(
           }
           marker <> label |> pad_right(16) <> display <> toggle
         }
-
         ListField(label, count) ->
           marker
           <> label |> pad_right(16)
@@ -356,7 +233,6 @@ pub fn render_edit_screen(
             True -> " " <> style.dim("Enter 편집")
             False -> ""
           }
-
         SelectField(label, value) -> {
           let display = case is_cur {
             True -> style.bold(style.cyan(value))
@@ -371,27 +247,17 @@ pub fn render_edit_screen(
       }
     })
     |> string.join("\n")
-
-  let help =
-    "\n  "
-    <> style.dim(
-      "↑↓ 필드 이동 · Enter 텍스트 편집 · ◀▶ 토글 · Esc 완료",
-    )
-
+  let help = "\n  " <> style.dim("↑↓ 필드 이동 · Enter 텍스트 편집 · ◀▶ 토글 · Esc 완료")
   header <> "\n\n" <> body <> "\n" <> help <> "\n"
 }
 
-// ── 열거형 값 편집 화면 ──
-
-/// 열거형 값 편집 화면을 문자열로 생성한다.
+/// Renders the enum edit screen.
 pub fn render_enum_edit_screen(
-  values: List(EnumValue),
-  cursor: Int,
-  status_msg: Option(String),
+  values values: List(model.EnumValue),
+  cursor cursor: Int,
+  status_msg status_msg: option.Option(String),
 ) -> String {
-  let header =
-    "  " <> style.bold(style.cyan("── 열거형 값 편집 ──"))
-
+  let header = "  " <> style.bold(style.cyan("── 열거형 값 편집 ──"))
   let body = case values {
     [] -> "    " <> style.dim("값이 없습니다. a로 추가하세요.")
     _ ->
@@ -410,31 +276,20 @@ pub fn render_enum_edit_screen(
       })
       |> string.join("\n")
   }
-
   let status_line = case status_msg {
-    Some(msg) -> "\n  " <> msg
-    None -> ""
+    option.Some(msg) -> "\n  " <> msg
+    option.None -> ""
   }
-
-  let help =
-    "\n  "
-    <> style.dim(
-      "↑↓ 이동 · Enter 편집 · a 추가 · d 삭제 · Esc 완료",
-    )
-
+  let help = "\n  " <> style.dim("↑↓ 이동 · Enter 편집 · a 추가 · d 삭제 · Esc 완료")
   header <> "\n\n" <> body <> "\n" <> status_line <> help <> "\n"
 }
 
-// ── 시스템 속성 선택 화면 ──
-
-/// 시스템 속성 선택 화면을 문자열로 생성한다.
+/// Renders the sys prop screen.
 pub fn render_sys_prop_screen(
-  options: List(String),
-  cursor: Int,
+  options options: List(String),
+  cursor cursor: Int,
 ) -> String {
-  let header =
-    "  " <> style.bold(style.cyan("── 시스템 속성 추가 ──"))
-
+  let header = "  " <> style.bold(style.cyan("── 시스템 속성 추가 ──"))
   let body =
     options
     |> list.index_map(fn(key, idx) {
@@ -450,119 +305,89 @@ pub fn render_sys_prop_screen(
       marker <> name
     })
     |> string.join("\n")
-
-  let help =
-    "\n  " <> style.dim("↑↓ 이동 · Enter 선택 · Esc 취소")
-
+  let help = "\n  " <> style.dim("↑↓ 이동 · Enter 선택 · Esc 취소")
   header <> "\n\n" <> body <> "\n" <> help <> "\n"
 }
 
-// ── 텍스트 입력 화면 ──
-
-/// 텍스트 입력 화면을 문자열로 생성한다.
+/// Renders the input screen.
 pub fn render_input_screen(
-  title: String,
-  buffer: String,
-  cursor_pos: Int,
+  title title: String,
+  buffer buffer: String,
+  cursor_pos cursor_pos: Int,
 ) -> String {
-  let header =
-    "  " <> style.bold(style.cyan("── " <> title <> " ──"))
-
-  let input_line =
-    "    " <> render_text_cursor(buffer, cursor_pos)
-
-  let help =
-    "\n  " <> style.dim("←→ 이동 · Enter 확인 · Esc 취소")
-
+  let header = "  " <> style.bold(style.cyan("── " <> title <> " ──"))
+  let input_line = "    " <> render_text_cursor(buffer, cursor_pos)
+  let help = "\n  " <> style.dim("←→ 이동 · Enter 확인 · Esc 취소")
   header <> "\n\n" <> input_line <> "\n" <> help <> "\n"
 }
 
-// ── 삭제 확인 화면 ──
-
-/// 삭제 확인 화면을 문자열로 생성한다.
-pub fn render_confirm_delete_screen(target_label: String) -> String {
-  let header =
-    "  " <> style.bold(style.yellow("── 삭제 확인 ──"))
-
-  let msg =
-    "    "
-    <> style.bold(target_label)
-    <> "을(를) 삭제하시겠습니까?"
-
-  let help =
-    "\n  " <> style.dim("y 삭제 · n/Esc 취소")
-
+/// Renders the confirm delete screen.
+pub fn render_confirm_delete_screen(
+  target_label target_label: String,
+) -> String {
+  let header = "  " <> style.bold(style.yellow("── 삭제 확인 ──"))
+  let msg = "    " <> style.bold(target_label) <> "을(를) 삭제하시겠습니까?"
+  let help = "\n  " <> style.dim("y 삭제 · n/Esc 취소")
   header <> "\n\n" <> msg <> "\n" <> help <> "\n"
 }
 
-// ── 종료 확인 화면 ──
-
-/// 종료 확인 화면을 문자열로 생성한다.
+/// Renders the confirm quit screen.
 pub fn render_confirm_quit_screen() -> String {
-  let header =
-    "  " <> style.bold(style.yellow("── 저장하지 않은 변경사항 ──"))
-
+  let header = "  " <> style.bold(style.yellow("── 저장하지 않은 변경사항 ──"))
   let msg = "    변경사항을 저장하지 않고 종료하시겠습니까?"
-
-  let help =
-    "\n  " <> style.dim("y 종료 · s 저장 후 종료 · n/Esc 취소")
-
+  let help = "\n  " <> style.dim("y 종료 · s 저장 후 종료 · n/Esc 취소")
   header <> "\n\n" <> msg <> "\n" <> help <> "\n"
 }
 
-// ── 속성을 편집 폼 필드로 변환 ──
-
-/// Property를 편집 가능한 필드 목록으로 변환한다.
-/// 타입별 관련 필드를 모두 표시한다.
-pub fn property_to_fields(prop: Property) -> List(EditField) {
+/// Converts a property into editable form fields.
+pub fn property_to_fields(prop prop: model.Property) -> List(EditField) {
   let base = [
     TextField("Key:", prop.key),
-    SelectField("Type:", types.type_to_string(prop.type_)),
+    SelectField("Type:", model.type_to_string(prop.type_)),
     TextField("Caption:", prop.caption),
     TextField("Description:", prop.description),
   ]
-
   let type_fields = case prop.type_ {
-    types.TypeString -> [
+    model.TypeString -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       TextField("Default:", option.unwrap(prop.default_value, "")),
       BoolField("Multiline:", option.unwrap(prop.multiline, False)),
     ]
-    types.TypeBoolean -> [
+    model.TypeBoolean -> [
       TextField("Default:", option.unwrap(prop.default_value, "false")),
     ]
-    types.TypeInteger -> [
+    model.TypeInteger -> [
       TextField("Default:", option.unwrap(prop.default_value, "0")),
     ]
-    types.TypeDecimal -> [
+    model.TypeDecimal -> [
       TextField("Default:", option.unwrap(prop.default_value, "0")),
     ]
-    types.TypeEnumeration -> [
+    model.TypeEnumeration -> [
       TextField("Default:", option.unwrap(prop.default_value, "")),
       ListField("EnumValues:", list.length(prop.enumeration_values)),
     ]
-    types.TypeIcon -> [
+    model.TypeIcon -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
     ]
-    types.TypeImage -> [
+    model.TypeImage -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       BoolField("AllowUpload:", option.unwrap(prop.allow_upload, False)),
     ]
-    types.TypeWidgets -> [
+    model.TypeWidgets -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       TextField("DataSource:", option.unwrap(prop.data_source, "")),
     ]
-    types.TypeFile -> [
+    model.TypeFile -> [
       BoolField("AllowUpload:", option.unwrap(prop.allow_upload, False)),
     ]
-    types.TypeExpression -> {
+    model.TypeExpression -> {
       let rt_type = case prop.return_type {
-        Some(rt) -> rt.type_name
-        None -> ""
+        option.Some(rt) -> rt.type_name
+        option.None -> ""
       }
       let rt_assign = case prop.return_type {
-        Some(rt) -> option.unwrap(rt.assignable_to, "")
-        None -> ""
+        option.Some(rt) -> option.unwrap(rt.assignable_to, "")
+        option.None -> ""
       }
       [
         BoolField("Required:", option.unwrap(prop.required, True)),
@@ -572,24 +397,24 @@ pub fn property_to_fields(prop: Property) -> List(EditField) {
         TextField("AssignableTo:", rt_assign),
       ]
     }
-    types.TypeTextTemplate -> [
+    model.TypeTextTemplate -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       BoolField("Multiline:", option.unwrap(prop.multiline, False)),
       TextField("DataSource:", option.unwrap(prop.data_source, "")),
     ]
-    types.TypeAction -> [
+    model.TypeAction -> [
       TextField("DataSource:", option.unwrap(prop.data_source, "")),
       TextField("Default:", option.unwrap(prop.default_value, "")),
       TextField("DefaultType:", option.unwrap(prop.default_type, "")),
     ]
-    types.TypeAttribute -> [
+    model.TypeAttribute -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       TextField("OnChange:", option.unwrap(prop.on_change, "")),
       TextField("DataSource:", option.unwrap(prop.data_source, "")),
       BoolField("SetLabel:", option.unwrap(prop.set_label, False)),
       ListField("AttrTypes:", list.length(prop.attribute_types)),
     ]
-    types.TypeAssociation -> [
+    model.TypeAssociation -> [
       BoolField("Required:", option.unwrap(prop.required, True)),
       TextField("SelectObjs:", option.unwrap(prop.selectable_objects, "")),
       TextField("OnChange:", option.unwrap(prop.on_change, "")),
@@ -597,62 +422,53 @@ pub fn property_to_fields(prop: Property) -> List(EditField) {
       BoolField("SetLabel:", option.unwrap(prop.set_label, False)),
       ListField("AssocTypes:", list.length(prop.association_types)),
     ]
-    types.TypeObject -> [
+    model.TypeObject -> [
       BoolField("IsList:", option.unwrap(prop.is_list, True)),
       BoolField("Required:", option.unwrap(prop.required, True)),
     ]
-    types.TypeDatasource -> [
+    model.TypeDatasource -> [
       BoolField("IsList:", option.unwrap(prop.is_list, True)),
       BoolField("Required:", option.unwrap(prop.required, True)),
       TextField("DefaultType:", option.unwrap(prop.default_type, "")),
       TextField("Default:", option.unwrap(prop.default_value, "")),
     ]
-    types.TypeSelection -> [
+    model.TypeSelection -> [
       TextField("DataSource:", option.unwrap(prop.data_source, "")),
       TextField("Default:", option.unwrap(prop.default_value, "")),
       TextField("OnChange:", option.unwrap(prop.on_change, "")),
       ListField("SelTypes:", list.length(prop.selection_types)),
     ]
   }
-
   list.append(base, type_fields)
 }
 
-/// 편집 폼 필드에서 Property를 재구성한다.
-/// 폼에 표시된 모든 필드를 추출하며, 빈 텍스트 필드는 None으로 변환한다.
+/// Applies edited form fields to a property.
 pub fn fields_to_property(
-  original: Property,
-  fields: List(EditField),
-) -> Property {
+  original original: model.Property,
+  fields fields: List(EditField),
+) -> model.Property {
   let key = find_text_field(fields, "Key:", original.key)
   let caption = find_text_field(fields, "Caption:", original.caption)
   let description =
     find_text_field(fields, "Description:", original.description)
-
-  // Bool 필드 — 폼에 존재하면 Some(값), 없으면 None
   let required = find_bool_field(fields, "Required:")
   let multiline = find_bool_field(fields, "Multiline:")
   let is_list = find_bool_field(fields, "IsList:")
   let allow_upload = find_bool_field(fields, "AllowUpload:")
   let set_label = find_bool_field(fields, "SetLabel:")
-
-  // 텍스트 필드 — 빈 문자열이면 None
   let default_value = find_optional_text(fields, "Default:")
   let data_source = find_optional_text(fields, "DataSource:")
   let on_change = find_optional_text(fields, "OnChange:")
   let default_type = find_optional_text(fields, "DefaultType:")
   let selectable_objects = find_optional_text(fields, "SelectObjs:")
-
-  // ReturnType — ReturnType 필드가 있고 값이 있으면 Some
   let return_type = case find_optional_text(fields, "ReturnType:") {
-    Some(type_name) -> {
+    option.Some(type_name) -> {
       let assignable_to = find_optional_text(fields, "AssignableTo:")
-      Some(ReturnType(type_name, assignable_to))
+      option.Some(model.ReturnType(type_name, assignable_to))
     }
-    None -> None
+    option.None -> option.None
   }
-
-  Property(
+  model.Property(
     key: key,
     type_: original.type_,
     caption: caption,
@@ -676,8 +492,8 @@ pub fn fields_to_property(
   )
 }
 
-/// WidgetMeta를 편집 가능한 필드 목록으로 변환한다.
-pub fn widget_meta_to_fields(meta: WidgetMeta) -> List(EditField) {
+/// Converts widget metadata into editable form fields.
+pub fn widget_meta_to_fields(meta meta: model.WidgetMeta) -> List(EditField) {
   let icon_display = case meta.icon {
     "" -> "(없음)"
     _ -> "(있음)"
@@ -697,19 +513,19 @@ pub fn widget_meta_to_fields(meta: WidgetMeta) -> List(EditField) {
   ]
 }
 
-/// 편집 폼 필드에서 WidgetMeta를 재구성한다.
+/// Applies edited form fields to widget metadata.
 pub fn fields_to_widget_meta(
-  original: WidgetMeta,
-  fields: List(EditField),
-) -> WidgetMeta {
+  original original: model.WidgetMeta,
+  fields fields: List(EditField),
+) -> model.WidgetMeta {
   let id = find_text_field(fields, "ID:", original.id)
   let offline_capable = case find_bool_field(fields, "OfflineCapable:") {
-    Some(v) -> v
-    None -> original.offline_capable
+    option.Some(v) -> v
+    option.None -> original.offline_capable
   }
   let needs_entity_context = case find_bool_field(fields, "NeedsEntity:") {
-    Some(v) -> v
-    None -> original.needs_entity_context
+    option.Some(v) -> v
+    option.None -> original.needs_entity_context
   }
   let platform_raw =
     find_text_field(fields, "Platform:", original.supported_platform)
@@ -722,20 +538,20 @@ pub fn fields_to_widget_meta(
     find_text_field(fields, "Description:", original.description)
   let category_raw = find_text_field(fields, "Category:", "")
   let studio_pro_category = case string.trim(category_raw) {
-    "" -> None
-    v -> Some(v)
+    "" -> option.None
+    v -> option.Some(v)
   }
   let help_url_raw = find_text_field(fields, "HelpUrl:", "")
   let help_url = case string.trim(help_url_raw) {
-    "" -> None
-    v -> Some(v)
+    "" -> option.None
+    v -> option.Some(v)
   }
   let prompt_raw = find_text_field(fields, "Prompt:", "")
   let prompt = case string.trim(prompt_raw) {
-    "" -> None
-    v -> Some(v)
+    "" -> option.None
+    v -> option.Some(v)
   }
-  WidgetMeta(
+  model.WidgetMeta(
     id: id,
     plugin_widget: original.plugin_widget,
     offline_capable: offline_capable,
@@ -750,63 +566,14 @@ pub fn fields_to_widget_meta(
   )
 }
 
-fn find_text_field(
-  fields: List(EditField),
-  label: String,
-  default: String,
-) -> String {
-  case fields {
-    [] -> default
-    [TextField(l, v), ..] if l == label -> v
-    [_, ..rest] -> find_text_field(rest, label, default)
-  }
-}
-
-/// 텍스트 필드를 Option으로 찾는다 — 빈 문자열이면 None
-fn find_optional_text(
-  fields: List(EditField),
-  label: String,
-) -> Option(String) {
-  case find_text_field_opt(fields, label) {
-    Some("") -> None
-    other -> other
-  }
-}
-
-fn find_text_field_opt(
-  fields: List(EditField),
-  label: String,
-) -> Option(String) {
-  case fields {
-    [] -> None
-    [TextField(l, v), ..] if l == label -> Some(v)
-    [_, ..rest] -> find_text_field_opt(rest, label)
-  }
-}
-
-fn find_bool_field(
-  fields: List(EditField),
-  label: String,
-) -> Option(Bool) {
-  case fields {
-    [] -> None
-    [BoolField(l, v), ..] if l == label -> Some(v)
-    [_, ..rest] -> find_bool_field(rest, label)
-  }
-}
-
-// ── 멀티선택 화면 ──
-
-/// 멀티선택 화면을 문자열로 생성한다.
+/// Renders the multi select screen.
 pub fn render_multi_select_screen(
-  title: String,
-  options: List(String),
-  selected: List(String),
-  cursor: Int,
+  title title: String,
+  options options: List(String),
+  selected selected: List(String),
+  cursor cursor: Int,
 ) -> String {
-  let header =
-    "  " <> style.bold(style.cyan("── " <> title <> " ──"))
-
+  let header = "  " <> style.bold(style.cyan("── " <> title <> " ──"))
   let body =
     options
     |> list.index_map(fn(opt, idx) {
@@ -827,12 +594,152 @@ pub fn render_multi_select_screen(
       marker <> check <> name
     })
     |> string.join("\n")
-
-  let help =
-    "\n  "
-    <> style.dim(
-      "↑↓ 이동 · Enter 토글 · Esc 완료",
-    )
-
+  let help = "\n  " <> style.dim("↑↓ 이동 · Enter 토글 · Esc 완료")
   header <> "\n\n" <> body <> "\n" <> help <> "\n"
+}
+
+fn build_item_rows(
+  items: List(model.PropertyItem),
+  group_index: Int,
+  item_start: Int,
+  flat_start: Int,
+) -> List(TreeRow) {
+  case items {
+    [] -> []
+    [item, ..rest] -> {
+      let row = case item {
+        model.PropItem(prop) ->
+          PropertyRow(flat_start, group_index, item_start, prop)
+        model.SysPropItem(sys) ->
+          SystemRow(flat_start, group_index, item_start, sys.key)
+      }
+      [
+        row,
+        ..build_item_rows(rest, group_index, item_start + 1, flat_start + 1)
+      ]
+    }
+  }
+}
+
+fn render_tree_row(row: TreeRow, is_cursor: Bool) -> String {
+  case row {
+    GroupRow(_, _, caption, count, is_collapsed) -> {
+      let marker = case is_cursor {
+        True -> style.cyan("  ▸ ")
+        False -> "    "
+      }
+      let fold_icon = case is_collapsed {
+        True -> style.dim("▸ ")
+        False -> style.dim("▾ ")
+      }
+      let name = case is_cursor {
+        True -> style.bold(style.cyan("[" <> caption <> "]"))
+        False -> style.bold("[" <> caption <> "]")
+      }
+      let suffix = case is_collapsed {
+        True -> "  " <> style.dim("(접힘, " <> int.to_string(count) <> "개 항목)")
+        False -> ""
+      }
+      marker <> fold_icon <> name <> suffix
+    }
+    PropertyRow(_, _, _, prop) -> {
+      let marker = case is_cursor {
+        True -> style.cyan("    ▸ ")
+        False -> "      "
+      }
+      let type_str =
+        style.dim(model.type_to_string(prop.type_))
+        |> pad_right(16)
+      let req_str = case prop.required {
+        option.Some(True) -> style.yellow("*필수")
+        _ -> ""
+      }
+      let default_str = case prop.default_value {
+        option.Some(v) -> " = " <> style.dim(v)
+        option.None -> ""
+      }
+      let key_str = case is_cursor {
+        True -> style.bold(style.cyan(prop.key))
+        False -> style.bold(prop.key)
+      }
+      marker <> key_str |> pad_right(20) <> type_str <> req_str <> default_str
+    }
+    SystemRow(_, _, _, key) -> {
+      let marker = case is_cursor {
+        True -> style.cyan("    ▸ ")
+        False -> "      "
+      }
+      let icon = style.dim("◇ ")
+      let name = case is_cursor {
+        True -> style.cyan(key)
+        False -> key
+      }
+      marker <> icon <> name <> "  " <> style.dim("(system)")
+    }
+  }
+}
+
+/// Renders the text cursor.
+fn render_text_cursor(buffer: String, cursor_pos: Int) -> String {
+  let before = string.slice(buffer, 0, cursor_pos)
+  let at_cursor = string.slice(buffer, cursor_pos, 1)
+  let after = string.drop_start(buffer, cursor_pos + 1)
+  case at_cursor {
+    "" -> style.cyan(before) <> style.dim("█")
+    ch ->
+      style.cyan(before) <> style.inverse(style.cyan(ch)) <> style.cyan(after)
+  }
+}
+
+fn pad_right(s: String, width: Int) -> String {
+  let len = string.length(s)
+  case len >= width {
+    True -> s
+    False -> s <> string.repeat(" ", width - len)
+  }
+}
+
+fn find_text_field(
+  fields: List(EditField),
+  label: String,
+  default: String,
+) -> String {
+  case fields {
+    [] -> default
+    [TextField(l, v), ..] if l == label -> v
+    [_, ..rest] -> find_text_field(rest, label, default)
+  }
+}
+
+/// Finds the optional text.
+fn find_optional_text(
+  fields: List(EditField),
+  label: String,
+) -> option.Option(String) {
+  case find_text_field_opt(fields, label) {
+    option.Some("") -> option.None
+    other -> other
+  }
+}
+
+fn find_text_field_opt(
+  fields: List(EditField),
+  label: String,
+) -> option.Option(String) {
+  case fields {
+    [] -> option.None
+    [TextField(l, v), ..] if l == label -> option.Some(v)
+    [_, ..rest] -> find_text_field_opt(rest, label)
+  }
+}
+
+fn find_bool_field(
+  fields: List(EditField),
+  label: String,
+) -> option.Option(Bool) {
+  case fields {
+    [] -> option.None
+    [BoolField(l, v), ..] if l == label -> option.Some(v)
+    [_, ..rest] -> find_bool_field(rest, label)
+  }
 }

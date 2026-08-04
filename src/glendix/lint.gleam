@@ -1,7 +1,10 @@
-// ESLint 실행
+//// Runs the Glendix widget lint command.
+////
 
 import glendix/cmd
 
-pub fn main() {
+/// Runs this module's command-line entrypoint.
+pub fn main() -> Nil {
   cmd.run_tool("lint")
+  |> cmd.report
 }

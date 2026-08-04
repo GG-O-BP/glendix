@@ -1,7 +1,10 @@
-// 위젯 프로덕션 빌드 (.mpk 생성)
+//// Provides build operations for Glendix.
+////
 
 import glendix/cmd
 
-pub fn main() {
+/// Runs this module's command-line entrypoint.
+pub fn main() -> Nil {
   cmd.run_tool_with_bridge("build:web")
+  |> cmd.report
 }

@@ -1,7 +1,10 @@
-// Mendix 테스트 프로젝트와 연동 개발
+//// Starts the Glendix widget development runtime.
+////
 
 import glendix/cmd
 
-pub fn main() {
+/// Runs this module's command-line entrypoint.
+pub fn main() -> Nil {
   cmd.run_tool_with_bridge("start:server")
+  |> cmd.report
 }

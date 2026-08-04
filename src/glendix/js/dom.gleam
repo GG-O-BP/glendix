@@ -1,28 +1,65 @@
-// DOM 요소 조작 유틸리티
+//// Provides typed DOM element operations at the JavaScript FFI boundary.
+////
 
-import gleam/dynamic.{type Dynamic}
-import gleam/option.{type Option}
+import gleam/option
 
-/// 요소에 포커스 설정
+/// Represents a DOM element handle.
+pub type DomElement
+
+/// Represents a DOM rectangle returned by `getBoundingClientRect`.
+pub type DomRect
+
+/// Focuses a DOM element.
+pub fn focus(element element: DomElement) -> Nil {
+  focus_raw(element)
+}
+
+/// Removes focus from a DOM element.
+pub fn blur(element element: DomElement) -> Nil {
+  blur_raw(element)
+}
+
+/// Dispatches the element's native click behavior.
+pub fn click(element element: DomElement) -> Nil {
+  click_raw(element)
+}
+
+/// Scrolls an element into the viewport.
+pub fn scroll_into_view(element element: DomElement) -> Nil {
+  scroll_into_view_raw(element)
+}
+
+/// Reads the element's bounding client rectangle.
+pub fn get_bounding_client_rect(element element: DomElement) -> DomRect {
+  get_bounding_client_rect_raw(element)
+}
+
+/// Finds the first descendant matching a CSS selector.
+pub fn query_selector(
+  in element: DomElement,
+  matching selector: String,
+) -> option.Option(DomElement) {
+  query_selector_raw(element, selector)
+}
+
+// -- FFI --
 @external(javascript, "./dom_ffi.mjs", "dom_focus")
-pub fn focus(element: Dynamic) -> Nil
+fn focus_raw(element: DomElement) -> Nil
 
-/// 요소에서 포커스 해제
 @external(javascript, "./dom_ffi.mjs", "dom_blur")
-pub fn blur(element: Dynamic) -> Nil
+fn blur_raw(element: DomElement) -> Nil
 
-/// 요소 클릭 이벤트 트리거
 @external(javascript, "./dom_ffi.mjs", "dom_click")
-pub fn click(element: Dynamic) -> Nil
+fn click_raw(element: DomElement) -> Nil
 
-/// 요소를 뷰포트에 스크롤
 @external(javascript, "./dom_ffi.mjs", "dom_scroll_into_view")
-pub fn scroll_into_view(element: Dynamic) -> Nil
+fn scroll_into_view_raw(element: DomElement) -> Nil
 
-/// 요소의 위치/크기 정보 (DOMRect 객체)
 @external(javascript, "./dom_ffi.mjs", "dom_get_bounding_client_rect")
-pub fn get_bounding_client_rect(element: Dynamic) -> Dynamic
+fn get_bounding_client_rect_raw(element: DomElement) -> DomRect
 
-/// CSS 선택자로 하위 요소 검색
 @external(javascript, "./dom_ffi.mjs", "dom_query_selector")
-pub fn query_selector(element: Dynamic, selector: String) -> Option(Dynamic)
+fn query_selector_raw(
+  element: DomElement,
+  selector: String,
+) -> option.Option(DomElement)

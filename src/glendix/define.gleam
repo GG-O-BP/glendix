@@ -1,25 +1,96 @@
-// Mendix Widget Property TUI 에디터 — 메인 모듈
+//// Runs the interactive Mendix widget definition editor.
+////
 
 import etch/command
 import etch/stdout
 import etch/style
 import etch/terminal
-import glendix/define/types.{
-  type EnumValue, type Property, type PropertyGroup, type PropertyItem,
-  type WidgetMeta, EnumValue, PropItem, Property, PropertyGroup,
-  SysPropItem, SystemProperty,
-}
-import glendix/define/ui.{
-  type EditField, BoolField, ListField, SelectField, TextField,
-}
 import gleam/int
 import gleam/io
-import gleam/javascript/promise.{type Promise}
+import gleam/javascript/promise
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
+import gleam/result
 import gleam/string
+import glendix/define/file_boundary
+import glendix/define/model
+import glendix/define/ui
 
-// ── 키 입력 ──
+/// Runs this module's command-line entrypoint.
+pub fn main() -> Nil {
+  case file_boundary.find_widget_xml() {
+    Error(error) -> {
+      io.println("\n  " <> style.red(file_error_message(error)))
+      Nil
+    }
+    Ok(xml_path) -> {
+      case file_boundary.read(xml_path) {
+        Error(error) -> {
+          io.println("\n  " <> style.red(file_error_message(error)))
+          Nil
+        }
+        Ok(xml_content) -> {
+          let #(meta, groups) = parse_widget_xml(xml_content)
+          let state =
+            DefineState(
+              xml_path: xml_path,
+              widget_meta: meta,
+              groups: groups,
+              cursor: 0,
+              collapsed: [],
+              view_mode: TreeView,
+              dirty: False,
+              status_msg: option.None,
+              scroll_offset: 0,
+              add_target_group: 0,
+              selected_type_idx: 0,
+              edit_group_idx: 0,
+              edit_item_idx: 0,
+            )
+          case is_tty() {
+            True -> {
+              case enter_tui() {
+                Error(error) -> {
+                  io.println(
+                    "\n  "
+                    <> style.red(
+                      "Unable to enable terminal raw mode: "
+                      <> string.inspect(error),
+                    ),
+                  )
+                  Nil
+                }
+                Ok(Nil) -> {
+                  {
+                    use _final <- promise.await(tui_loop(state))
+                    case exit_tui() {
+                      Ok(Nil) -> Nil
+                      Error(error) ->
+                        io.println(
+                          "\n  "
+                          <> style.red(
+                            "Unable to restore terminal mode: "
+                            <> string.inspect(error),
+                          ),
+                        )
+                    }
+                    exit_process()
+                    promise.resolve(Nil)
+                  }
+                  Nil
+                }
+              }
+            }
+            False -> {
+              io.println("\n  " <> style.yellow("TTY가 아닙니다. 대화형 모드가 필요합니다."))
+              Nil
+            }
+          }
+        }
+      }
+    }
+  }
+}
 
 type KeyInput {
   KeyNone
@@ -38,6 +109,78 @@ type KeyInput {
   KeyPageDown
   KeyTab
 }
+
+type InputTarget {
+  GroupNameInput
+  PropertyKeyInput
+  EditFieldInput(field_index: Int)
+  EnumKeyInput(enum_index: Int)
+  EnumCaptionInput(enum_index: Int, new_key: String)
+  NewEnumKeyInput
+  NewEnumCaptionInput(key: String)
+}
+
+type ViewMode {
+  TreeView
+  SelectType(cursor: Int)
+  InputText(target: InputTarget, buffer: String, buf_cursor: Int)
+  EditProperty(
+    original: model.Property,
+    fields: List(ui.EditField),
+    cursor: Int,
+    editing: Bool,
+    edit_buffer: String,
+    edit_buf_cursor: Int,
+  )
+  EditEnum(values: List(model.EnumValue), cursor: Int)
+  EditMeta(
+    original: model.WidgetMeta,
+    fields: List(ui.EditField),
+    cursor: Int,
+    editing: Bool,
+    edit_buffer: String,
+    edit_buf_cursor: Int,
+  )
+  SelectSystemProp(cursor: Int, options: List(String))
+  SelectTypeForEdit(cursor: Int)
+  EditMultiSelect(
+    field_label: String,
+    options: List(String),
+    selected: List(String),
+    cursor: Int,
+  )
+  ConfirmDelete(
+    target_label: String,
+    group_idx: Int,
+    item_idx: option.Option(Int),
+  )
+  ConfirmQuit
+}
+
+type DefineState {
+  DefineState(
+    xml_path: String,
+    widget_meta: model.WidgetMeta,
+    groups: List(model.PropertyGroup),
+    cursor: Int,
+    collapsed: List(Int),
+    view_mode: ViewMode,
+    dirty: Bool,
+    status_msg: option.Option(String),
+    scroll_offset: Int,
+    add_target_group: Int,
+    selected_type_idx: Int,
+    edit_group_idx: Int,
+    edit_item_idx: Int,
+  )
+}
+
+type TerminalControlError {
+  RawModeCouldNotBeEnabled(reason: String)
+  RawModeCouldNotBeDisabled(reason: String)
+}
+
+type RawTerminalModeError
 
 fn parse_key(raw: #(Int, String)) -> KeyInput {
   case raw.0 {
@@ -59,135 +202,34 @@ fn parse_key(raw: #(Int, String)) -> KeyInput {
   }
 }
 
-// ── 텍스트 입력 대상 ──
-
-type InputTarget {
-  GroupNameInput
-  PropertyKeyInput
-  EditFieldInput(field_index: Int)
-  EnumKeyInput(enum_index: Int)
-  EnumCaptionInput(enum_index: Int, new_key: String)
-  NewEnumKeyInput
-  NewEnumCaptionInput(key: String)
-}
-
-// ── 뷰 모드 ──
-
-type ViewMode {
-  TreeView
-  SelectType(cursor: Int)
-  InputText(target: InputTarget, buffer: String, buf_cursor: Int)
-  EditProperty(
-    original: Property,
-    fields: List(EditField),
-    cursor: Int,
-    editing: Bool,
-    edit_buffer: String,
-    edit_buf_cursor: Int,
-  )
-  EditEnum(
-    values: List(EnumValue),
-    cursor: Int,
-  )
-  EditMeta(
-    original: WidgetMeta,
-    fields: List(EditField),
-    cursor: Int,
-    editing: Bool,
-    edit_buffer: String,
-    edit_buf_cursor: Int,
-  )
-  SelectSystemProp(cursor: Int, options: List(String))
-  SelectTypeForEdit(cursor: Int)
-  EditMultiSelect(
-    field_label: String,
-    options: List(String),
-    selected: List(String),
-    cursor: Int,
-  )
-  ConfirmDelete(target_label: String, group_idx: Int, item_idx: Option(Int))
-  ConfirmQuit
-}
-
-// ── 문자열 커서 조작 ──
-
-/// 커서 위치에 문자를 삽입한다.
 fn buf_insert(buffer: String, pos: Int, ch: String) -> String {
   string.slice(buffer, 0, pos) <> ch <> string.drop_start(buffer, pos)
 }
 
-/// 커서 앞의 문자를 삭제한다.
 fn buf_delete(buffer: String, pos: Int) -> String {
   case pos > 0 {
-    True ->
-      string.slice(buffer, 0, pos - 1) <> string.drop_start(buffer, pos)
+    True -> string.slice(buffer, 0, pos - 1) <> string.drop_start(buffer, pos)
     False -> buffer
   }
 }
 
-// ── 상태 ──
-
-type DefineState {
-  DefineState(
-    xml_path: String,
-    widget_meta: WidgetMeta,
-    groups: List(PropertyGroup),
-    cursor: Int,
-    collapsed: List(Int),
-    view_mode: ViewMode,
-    dirty: Bool,
-    status_msg: Option(String),
-    scroll_offset: Int,
-    add_target_group: Int,
-    selected_type_idx: Int,
-    edit_group_idx: Int,
-    edit_item_idx: Int,
+fn enter_tui() -> Result(Nil, TerminalControlError) {
+  use _ <- result.try(
+    set_terminal_raw_mode(True)
+    |> result.map_error(fn(error) {
+      RawModeCouldNotBeEnabled(raw_terminal_mode_error_message(error))
+    }),
   )
-}
-
-// ── FFI 선언 ──
-
-@external(javascript, "./define_ffi.mjs", "find_widget_xml")
-fn find_widget_xml() -> Option(String)
-
-@external(javascript, "./define_ffi.mjs", "read_file")
-fn read_file(path: String) -> Option(String)
-
-@external(javascript, "./define_ffi.mjs", "write_file")
-fn write_file(path: String, content: String) -> Bool
-
-@external(javascript, "./define_ffi.mjs", "is_tty")
-fn is_tty() -> Bool
-
-@external(javascript, "./define_ffi.mjs", "exit_process")
-fn exit_process() -> Nil
-
-@external(javascript, "./define_ffi.mjs", "terminal_size")
-fn terminal_size() -> #(Int, Int)
-
-@external(javascript, "./define_ffi.mjs", "parse_widget_xml")
-fn parse_widget_xml(xml: String) -> #(WidgetMeta, List(PropertyGroup))
-
-@external(javascript, "./define_ffi.mjs", "serialize_widget_xml")
-fn serialize_widget_xml(
-  meta: WidgetMeta,
-  groups: List(PropertyGroup),
-) -> String
-
-@external(javascript, "./define_ffi.mjs", "poll_key_raw")
-fn poll_key_raw(timeout_ms: Int) -> Promise(#(Int, String))
-
-// ── TUI 제어 ──
-
-fn enter_tui() -> Nil {
-  let _ = terminal.enter_raw()
   stdout.execute([command.EnterAlternateScreen, command.HideCursor])
+  Ok(Nil)
 }
 
-fn exit_tui() -> Nil {
+fn exit_tui() -> Result(Nil, TerminalControlError) {
   stdout.execute([command.ShowCursor, command.LeaveAlternateScreen])
-  let _ = terminal.exit_raw()
-  Nil
+  set_terminal_raw_mode(False)
+  |> result.map_error(fn(error) {
+    RawModeCouldNotBeDisabled(raw_terminal_mode_error_message(error))
+  })
 }
 
 fn render(state: DefineState) -> Nil {
@@ -199,7 +241,10 @@ fn render(state: DefineState) -> Nil {
         state.groups,
         state.cursor,
         state.collapsed,
-        state.dirty,
+        case state.dirty {
+          True -> ui.Modified
+          False -> ui.Saved
+        },
         state.status_msg,
         state.scroll_offset,
         term_rows,
@@ -219,19 +264,34 @@ fn render(state: DefineState) -> Nil {
     }
     EditProperty(_, fields, cursor, editing, edit_buffer, edit_buf_cursor) -> {
       let prop_key = case fields {
-        [TextField(_, k), ..] -> k
-        _ -> "?"
+        [ui.TextField(_, k), ..] -> k
+        []
+        | [ui.BoolField(..), ..]
+        | [ui.ReadOnlyField(..), ..]
+        | [ui.ListField(..), ..]
+        | [ui.SelectField(..), ..] -> "?"
       }
       let prop_type = case fields {
-        [_, SelectField(_, t), ..] -> t
-        _ -> "?"
+        [_, ui.SelectField(_, t), ..] -> t
+        [] | [_] -> "?"
+        [_, second, ..] ->
+          case second {
+            ui.SelectField(_, t) -> t
+            ui.TextField(..)
+            | ui.BoolField(..)
+            | ui.ReadOnlyField(..)
+            | ui.ListField(..) -> "?"
+          }
       }
       ui.render_edit_screen(
         prop_key,
         prop_type,
         fields,
         cursor,
-        editing,
+        case editing {
+          True -> ui.Editing
+          False -> ui.Viewing
+        },
         edit_buffer,
         edit_buf_cursor,
       )
@@ -242,7 +302,10 @@ fn render(state: DefineState) -> Nil {
         "위젯 정보",
         fields,
         cursor,
-        editing,
+        case editing {
+          True -> ui.Editing
+          False -> ui.Viewing
+        },
         edit_buffer,
         edit_buf_cursor,
       )
@@ -260,8 +323,7 @@ fn render(state: DefineState) -> Nil {
       }
       ui.render_multi_select_screen(title, options, selected, cursor)
     }
-    ConfirmDelete(label, _, _) ->
-      ui.render_confirm_delete_screen(label)
+    ConfirmDelete(label, _, _) -> ui.render_confirm_delete_screen(label)
     ConfirmQuit -> ui.render_confirm_quit_screen()
   }
   stdout.execute([
@@ -271,83 +333,26 @@ fn render(state: DefineState) -> Nil {
   ])
 }
 
-// ── 메인 ──
-
-pub fn main() {
-  case find_widget_xml() {
-    None -> {
-      io.println(
-        "\n  "
-        <> style.red(
-          "위젯 XML 파일을 찾을 수 없습니다.\n"
-          <> "  package.json에 widgetName이 정의되어 있고,\n"
-          <> "  src/{widgetName}.xml 파일이 존재하는지 확인하세요.",
-        ),
-      )
-      Nil
-    }
-    Some(xml_path) -> {
-      case read_file(xml_path) {
-        None -> {
-          io.println(
-            "\n  " <> style.red("파일을 읽을 수 없습니다: " <> xml_path),
-          )
-          Nil
-        }
-        Some(xml_content) -> {
-          let #(meta, groups) = parse_widget_xml(xml_content)
-          let state =
-            DefineState(
-              xml_path: xml_path,
-              widget_meta: meta,
-              groups: groups,
-              cursor: 0,
-              collapsed: [],
-              view_mode: TreeView,
-              dirty: False,
-              status_msg: None,
-              scroll_offset: 0,
-              add_target_group: 0,
-              selected_type_idx: 0,
-              edit_group_idx: 0,
-              edit_item_idx: 0,
-            )
-          case is_tty() {
-            True -> {
-              enter_tui()
-              {
-                use _final <- promise.await(tui_loop(state))
-                exit_tui()
-                exit_process()
-                promise.resolve(Nil)
-              }
-              Nil
-            }
-            False -> {
-              io.println(
-                "\n  "
-                <> style.yellow(
-                  "TTY가 아닙니다. 대화형 모드가 필요합니다.",
-                ),
-              )
-              Nil
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// ── TUI 이벤트 루프 ──
-
-fn tui_loop(state: DefineState) -> Promise(DefineState) {
+fn tui_loop(state: DefineState) -> promise.Promise(DefineState) {
   render(state)
   use raw <- promise.await(poll_key_raw(0))
   let key = parse_key(raw)
   case key {
     KeyNone -> tui_loop(state)
-    _ ->
+    KeyUp
+    | KeyDown
+    | KeyRight
+    | KeyLeft
+    | KeyEnter
+    | KeyEscape
+    | KeyBackspace
+    | KeyCtrlC
+    | KeyChar(_)
+    | KeyHome
+    | KeyEnd
+    | KeyPageUp
+    | KeyPageDown
+    | KeyTab ->
       case state.view_mode {
         TreeView -> handle_tree_key(state, key)
         SelectType(_) -> handle_type_select_key(state, key)
@@ -364,34 +369,27 @@ fn tui_loop(state: DefineState) -> Promise(DefineState) {
   }
 }
 
-// ── 트리뷰 행 수 ──
-
 fn total_rows(state: DefineState) -> Int {
-  let rows =
-    ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+  let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
   list.length(rows)
 }
-
-// ── TreeView 키 처리 ──
 
 fn handle_tree_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
-  let state = DefineState(..state, status_msg: None)
+) -> promise.Promise(DefineState) {
+  let state = DefineState(..state, status_msg: option.None)
   case key {
     KeyCtrlC -> promise.resolve(state)
     KeyChar("q") -> {
       case state.dirty {
-        True ->
-          tui_loop(DefineState(..state, view_mode: ConfirmQuit))
+        True -> tui_loop(DefineState(..state, view_mode: ConfirmQuit))
         False -> promise.resolve(state)
       }
     }
     KeyEscape -> {
       case state.dirty {
-        True ->
-          tui_loop(DefineState(..state, view_mode: ConfirmQuit))
+        True -> tui_loop(DefineState(..state, view_mode: ConfirmQuit))
         False -> promise.resolve(state)
       }
     }
@@ -407,34 +405,24 @@ fn handle_tree_key(
     KeyTab -> tui_loop(toggle_collapse(state))
     KeyEnter -> tui_loop(enter_edit(state))
     KeyChar("a") -> {
-      // 현재 커서가 속한 그룹 찾기
       let gi = cursor_group_index(state)
       case list.length(state.groups) {
         0 ->
           tui_loop(
             DefineState(
               ..state,
-              status_msg: Some(
-                style.yellow("먼저 g로 그룹을 추가하세요."),
-              ),
+              status_msg: option.Some(style.yellow("먼저 g로 그룹을 추가하세요.")),
             ),
           )
         _ ->
           tui_loop(
-            DefineState(
-              ..state,
-              add_target_group: gi,
-              view_mode: SelectType(0),
-            ),
+            DefineState(..state, add_target_group: gi, view_mode: SelectType(0)),
           )
       }
     }
     KeyChar("g") ->
       tui_loop(
-        DefineState(
-          ..state,
-          view_mode: InputText(GroupNameInput, "", 0),
-        ),
+        DefineState(..state, view_mode: InputText(GroupNameInput, "", 0)),
       )
     KeyChar("p") -> {
       case list.length(state.groups) {
@@ -442,9 +430,7 @@ fn handle_tree_key(
           tui_loop(
             DefineState(
               ..state,
-              status_msg: Some(
-                style.yellow("먼저 g로 그룹을 추가하세요."),
-              ),
+              status_msg: option.Some(style.yellow("먼저 g로 그룹을 추가하세요.")),
             ),
           )
         _ -> {
@@ -453,10 +439,7 @@ fn handle_tree_key(
             DefineState(
               ..state,
               add_target_group: gi,
-              view_mode: SelectSystemProp(
-                0,
-                types.all_system_keys(),
-              ),
+              view_mode: SelectSystemProp(0, model.all_system_keys()),
             ),
           )
         }
@@ -473,11 +456,9 @@ fn handle_tree_key(
       )
     }
     KeyChar("s") -> tui_loop(save_xml(state))
-    _ -> tui_loop(state)
+    KeyNone | KeyRight | KeyLeft | KeyBackspace | KeyChar(_) -> tui_loop(state)
   }
 }
-
-// ── 커서 이동 ──
 
 fn move_cursor(state: DefineState, delta: Int) -> DefineState {
   let max = total_rows(state)
@@ -507,11 +488,8 @@ fn adjust_scroll(cursor: Int, scroll: Int, visible: Int) -> Int {
   }
 }
 
-// ── 그룹 접기/펼치기 ──
-
 fn toggle_collapse(state: DefineState) -> DefineState {
-  let rows =
-    ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+  let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
   case list.drop(rows, state.cursor) |> list.first {
     Ok(ui.GroupRow(_, gi, _, _, is_collapsed)) -> {
       let new_collapsed = case is_collapsed {
@@ -520,15 +498,12 @@ fn toggle_collapse(state: DefineState) -> DefineState {
       }
       DefineState(..state, collapsed: new_collapsed)
     }
-    _ -> state
+    Ok(ui.PropertyRow(..)) | Ok(ui.SystemRow(..)) | Error(_) -> state
   }
 }
 
-// ── 현재 커서가 속한 그룹 인덱스 ──
-
 fn cursor_group_index(state: DefineState) -> Int {
-  let rows =
-    ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+  let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
   case list.drop(rows, state.cursor) |> list.first {
     Ok(ui.GroupRow(_, gi, _, _, _)) -> gi
     Ok(ui.PropertyRow(_, gi, _, _)) -> gi
@@ -537,11 +512,8 @@ fn cursor_group_index(state: DefineState) -> Int {
   }
 }
 
-// ── 편집 진입 ──
-
 fn enter_edit(state: DefineState) -> DefineState {
-  let rows =
-    ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+  let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
   case list.drop(rows, state.cursor) |> list.first {
     Ok(ui.GroupRow(_, gi, caption, _, _)) ->
       DefineState(
@@ -561,18 +533,16 @@ fn enter_edit(state: DefineState) -> DefineState {
     Ok(ui.SystemRow(_, _, _, _)) ->
       DefineState(
         ..state,
-        status_msg: Some(style.dim("시스템 속성은 편집할 수 없습니다.")),
+        status_msg: option.Some(style.dim("시스템 속성은 편집할 수 없습니다.")),
       )
     Error(_) -> state
   }
 }
 
-// ── 타입 선택 키 처리 ──
-
 fn handle_type_select_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     SelectType(cursor) ->
       case key {
@@ -583,13 +553,12 @@ fn handle_type_select_key(
           tui_loop(DefineState(..state, view_mode: SelectType(new_c)))
         }
         KeyDown -> {
-          let max = list.length(types.all_types()) - 1
+          let max = list.length(model.all_types()) - 1
           let new_c = int.min(max, cursor + 1)
           tui_loop(DefineState(..state, view_mode: SelectType(new_c)))
         }
         KeyEnter -> {
-          // 선택된 타입의 인덱스를 보존하고 key 입력으로 전환
-          case list.drop(types.all_types(), cursor) |> list.first {
+          case list.drop(model.all_types(), cursor) |> list.first {
             Ok(_) ->
               tui_loop(
                 DefineState(
@@ -598,38 +567,53 @@ fn handle_type_select_key(
                   view_mode: InputText(PropertyKeyInput, "", 0),
                 ),
               )
-            Error(_) ->
-              tui_loop(DefineState(..state, view_mode: TreeView))
+            Error(_) -> tui_loop(DefineState(..state, view_mode: TreeView))
           }
         }
-        _ -> tui_loop(state)
+        KeyNone
+        | KeyRight
+        | KeyLeft
+        | KeyBackspace
+        | KeyChar(_)
+        | KeyHome
+        | KeyEnd
+        | KeyPageUp
+        | KeyPageDown
+        | KeyTab -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 텍스트 입력 키 처리 ──
 
 fn handle_input_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     InputText(target, buffer, bc) ->
       case key {
         KeyCtrlC | KeyEscape ->
           case target {
-            NewEnumCaptionInput(_) | NewEnumKeyInput
-            | EnumCaptionInput(_, _) | EnumKeyInput(_) ->
-              tui_loop(restore_enum_view(state))
-            _ ->
+            NewEnumCaptionInput(_)
+            | NewEnumKeyInput
+            | EnumCaptionInput(_, _)
+            | EnumKeyInput(_) -> tui_loop(restore_enum_view(state))
+            GroupNameInput | PropertyKeyInput | EditFieldInput(_) ->
               tui_loop(DefineState(..state, view_mode: TreeView))
           }
         KeyEnter ->
           case target {
             GroupNameInput -> tui_loop(apply_group_name(state, buffer))
-            PropertyKeyInput ->
-              tui_loop(apply_new_property_key(state, buffer))
+            PropertyKeyInput -> tui_loop(apply_new_property_key(state, buffer))
             EditFieldInput(fi) ->
               tui_loop(apply_edit_field_text(state, fi, buffer))
             EnumKeyInput(ei) -> {
@@ -652,11 +636,7 @@ fn handle_input_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: InputText(
-                    NewEnumCaptionInput(buffer),
-                    "",
-                    0,
-                  ),
+                  view_mode: InputText(NewEnumCaptionInput(buffer), "", 0),
                 ),
               )
             NewEnumCaptionInput(enum_key) ->
@@ -682,20 +662,13 @@ fn handle_input_key(
           )
         KeyHome ->
           tui_loop(
-            DefineState(
-              ..state,
-              view_mode: InputText(target, buffer, 0),
-            ),
+            DefineState(..state, view_mode: InputText(target, buffer, 0)),
           )
         KeyEnd ->
           tui_loop(
             DefineState(
               ..state,
-              view_mode: InputText(
-                target,
-                buffer,
-                string.length(buffer),
-              ),
+              view_mode: InputText(target, buffer, string.length(buffer)),
             ),
           )
         KeyBackspace -> {
@@ -715,24 +688,29 @@ fn handle_input_key(
         KeyChar(c) -> {
           let new_buf = buf_insert(buffer, bc, c)
           tui_loop(
-            DefineState(
-              ..state,
-              view_mode: InputText(target, new_buf, bc + 1),
-            ),
+            DefineState(..state, view_mode: InputText(target, new_buf, bc + 1)),
           )
         }
-        _ -> tui_loop(state)
+        KeyNone | KeyUp | KeyDown | KeyPageUp | KeyPageDown | KeyTab ->
+          tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 속성 편집 키 처리 ──
 
 fn handle_edit_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     EditProperty(original, fields, cursor, editing, edit_buffer, ebc) ->
       case editing {
@@ -743,18 +721,27 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, False, "", 0,
+                    original,
+                    fields,
+                    cursor,
+                    False,
+                    "",
+                    0,
                   ),
                 ),
               )
             KeyEnter -> {
-              let new_fields =
-                update_field_text(fields, cursor, edit_buffer)
+              let new_fields = update_field_text(fields, cursor, edit_buffer)
               tui_loop(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, new_fields, cursor, False, "", 0,
+                    original,
+                    new_fields,
+                    cursor,
+                    False,
+                    "",
+                    0,
                   ),
                 ),
               )
@@ -764,8 +751,12 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, True,
-                    edit_buffer, int.max(0, ebc - 1),
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    int.max(0, ebc - 1),
                   ),
                 ),
               )
@@ -774,7 +765,10 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, True,
+                    original,
+                    fields,
+                    cursor,
+                    True,
                     edit_buffer,
                     int.min(string.length(edit_buffer), ebc + 1),
                   ),
@@ -785,7 +779,12 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, True, edit_buffer, 0,
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    0,
                   ),
                 ),
               )
@@ -794,8 +793,12 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, True,
-                    edit_buffer, string.length(edit_buffer),
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    string.length(edit_buffer),
                   ),
                 ),
               )
@@ -807,8 +810,12 @@ fn handle_edit_key(
                     DefineState(
                       ..state,
                       view_mode: EditProperty(
-                        original, fields, cursor, True,
-                        new_buf, ebc - 1,
+                        original,
+                        fields,
+                        cursor,
+                        True,
+                        new_buf,
+                        ebc - 1,
                       ),
                     ),
                   )
@@ -821,18 +828,27 @@ fn handle_edit_key(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, fields, cursor, True,
-                    new_buf, ebc + 1,
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    new_buf,
+                    ebc + 1,
                   ),
                 ),
               )
             }
-            _ -> tui_loop(state)
+            KeyNone
+            | KeyUp
+            | KeyDown
+            | KeyCtrlC
+            | KeyPageUp
+            | KeyPageDown
+            | KeyTab -> tui_loop(state)
           }
         False ->
           case key {
             KeyEscape | KeyCtrlC -> {
-              // 편집 완료 — 필드에서 Property 재구성
               let updated = ui.fields_to_property(original, fields)
               let new_groups =
                 update_property(
@@ -849,8 +865,8 @@ fn handle_edit_key(
                   dirty: state.dirty || changed,
                   view_mode: TreeView,
                   status_msg: case changed {
-                    True -> Some(style.green("속성 수정됨"))
-                    False -> None
+                    True -> option.Some(style.green("속성 수정됨"))
+                    False -> option.None
                   },
                 ),
               )
@@ -860,9 +876,7 @@ fn handle_edit_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditProperty(
-                    original, fields, new_c, False, "", 0,
-                  ),
+                  view_mode: EditProperty(original, fields, new_c, False, "", 0),
                 ),
               )
             }
@@ -872,31 +886,30 @@ fn handle_edit_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditProperty(
-                    original, fields, new_c, False, "", 0,
-                  ),
+                  view_mode: EditProperty(original, fields, new_c, False, "", 0),
                 ),
               )
             }
             KeyEnter -> {
-              // 현재 필드가 TextField → 편집 모드 진입 (커서를 끝에 배치)
               case list.drop(fields, cursor) |> list.first {
-                Ok(TextField(_, v)) ->
+                Ok(ui.TextField(_, v)) ->
                   tui_loop(
                     DefineState(
                       ..state,
                       view_mode: EditProperty(
-                        original, fields, cursor, True,
-                        v, string.length(v),
+                        original,
+                        fields,
+                        cursor,
+                        True,
+                        v,
+                        string.length(v),
                       ),
                     ),
                   )
-                Ok(SelectField(label, _)) ->
+                Ok(ui.SelectField(label, _)) ->
                   case label {
                     "Type:" -> {
-                      // 현재 필드 편집 내용 저장 후 타입 선택 진입
-                      let current_prop =
-                        ui.fields_to_property(original, fields)
+                      let current_prop = ui.fields_to_property(original, fields)
                       let new_groups =
                         update_property(
                           state.groups,
@@ -904,24 +917,20 @@ fn handle_edit_key(
                           state.edit_item_idx,
                           current_prop,
                         )
-                      let type_cursor =
-                        types.type_index(current_prop.type_)
+                      let type_cursor = model.type_index(current_prop.type_)
                       tui_loop(
                         DefineState(
                           ..state,
                           groups: new_groups,
-                          dirty: state.dirty
-                            || current_prop != original,
+                          dirty: state.dirty || current_prop != original,
                           view_mode: SelectTypeForEdit(type_cursor),
                         ),
                       )
                     }
                     _ -> tui_loop(state)
                   }
-                Ok(ListField(label, _)) -> {
-                  // 서브에디터 진입 전 현재 필드 편집 내용 저장
-                  let current_prop =
-                    ui.fields_to_property(original, fields)
+                Ok(ui.ListField(label, _)) -> {
+                  let current_prop = ui.fields_to_property(original, fields)
                   let new_groups =
                     update_property(
                       state.groups,
@@ -938,7 +947,8 @@ fn handle_edit_key(
                           groups: new_groups,
                           dirty: state.dirty || has_changes,
                           view_mode: EditEnum(
-                            current_prop.enumeration_values, 0,
+                            current_prop.enumeration_values,
+                            0,
                           ),
                         ),
                       )
@@ -950,7 +960,7 @@ fn handle_edit_key(
                           dirty: state.dirty || has_changes,
                           view_mode: EditMultiSelect(
                             "AttrTypes:",
-                            types.all_attribute_types(),
+                            model.all_attribute_types(),
                             current_prop.attribute_types,
                             0,
                           ),
@@ -964,7 +974,7 @@ fn handle_edit_key(
                           dirty: state.dirty || has_changes,
                           view_mode: EditMultiSelect(
                             "AssocTypes:",
-                            types.all_association_types(),
+                            model.all_association_types(),
                             current_prop.association_types,
                             0,
                           ),
@@ -978,7 +988,7 @@ fn handle_edit_key(
                           dirty: state.dirty || has_changes,
                           view_mode: EditMultiSelect(
                             "SelTypes:",
-                            types.all_selection_types(),
+                            model.all_selection_types(),
                             current_prop.selection_types,
                             0,
                           ),
@@ -987,34 +997,53 @@ fn handle_edit_key(
                     _ -> tui_loop(state)
                   }
                 }
-                _ -> tui_loop(state)
+                Ok(ui.BoolField(..)) | Ok(ui.ReadOnlyField(..)) | Error(_) ->
+                  tui_loop(state)
               }
             }
             KeyLeft | KeyRight -> {
-              // Bool 필드 토글
               let new_fields = toggle_bool_field(fields, cursor)
               tui_loop(
                 DefineState(
                   ..state,
                   view_mode: EditProperty(
-                    original, new_fields, cursor, False, "", 0,
+                    original,
+                    new_fields,
+                    cursor,
+                    False,
+                    "",
+                    0,
                   ),
                 ),
               )
             }
-            _ -> tui_loop(state)
+            KeyNone
+            | KeyHome
+            | KeyEnd
+            | KeyPageUp
+            | KeyPageDown
+            | KeyTab
+            | KeyBackspace
+            | KeyChar(_) -> tui_loop(state)
           }
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 위젯 메타 편집 키 처리 ──
 
 fn handle_meta_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     EditMeta(original, fields, cursor, editing, edit_buffer, ebc) ->
       case editing {
@@ -1024,19 +1053,21 @@ fn handle_meta_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditMeta(
-                    original, fields, cursor, False, "", 0,
-                  ),
+                  view_mode: EditMeta(original, fields, cursor, False, "", 0),
                 ),
               )
             KeyEnter -> {
-              let new_fields =
-                update_field_text(fields, cursor, edit_buffer)
+              let new_fields = update_field_text(fields, cursor, edit_buffer)
               tui_loop(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, new_fields, cursor, False, "", 0,
+                    original,
+                    new_fields,
+                    cursor,
+                    False,
+                    "",
+                    0,
                   ),
                 ),
               )
@@ -1046,8 +1077,12 @@ fn handle_meta_key(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, fields, cursor, True,
-                    edit_buffer, int.max(0, ebc - 1),
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    int.max(0, ebc - 1),
                   ),
                 ),
               )
@@ -1056,7 +1091,10 @@ fn handle_meta_key(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, fields, cursor, True,
+                    original,
+                    fields,
+                    cursor,
+                    True,
                     edit_buffer,
                     int.min(string.length(edit_buffer), ebc + 1),
                   ),
@@ -1067,7 +1105,12 @@ fn handle_meta_key(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, fields, cursor, True, edit_buffer, 0,
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    0,
                   ),
                 ),
               )
@@ -1076,8 +1119,12 @@ fn handle_meta_key(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, fields, cursor, True,
-                    edit_buffer, string.length(edit_buffer),
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    edit_buffer,
+                    string.length(edit_buffer),
                   ),
                 ),
               )
@@ -1089,8 +1136,12 @@ fn handle_meta_key(
                     DefineState(
                       ..state,
                       view_mode: EditMeta(
-                        original, fields, cursor, True,
-                        new_buf, ebc - 1,
+                        original,
+                        fields,
+                        cursor,
+                        True,
+                        new_buf,
+                        ebc - 1,
                       ),
                     ),
                   )
@@ -1103,18 +1154,27 @@ fn handle_meta_key(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, fields, cursor, True,
-                    new_buf, ebc + 1,
+                    original,
+                    fields,
+                    cursor,
+                    True,
+                    new_buf,
+                    ebc + 1,
                   ),
                 ),
               )
             }
-            _ -> tui_loop(state)
+            KeyNone
+            | KeyUp
+            | KeyDown
+            | KeyCtrlC
+            | KeyPageUp
+            | KeyPageDown
+            | KeyTab -> tui_loop(state)
           }
         False ->
           case key {
             KeyEscape | KeyCtrlC -> {
-              // 편집 완료 — 필드에서 WidgetMeta 재구성
               let updated = ui.fields_to_widget_meta(original, fields)
               let changed = updated != original
               tui_loop(
@@ -1124,8 +1184,8 @@ fn handle_meta_key(
                   dirty: state.dirty || changed,
                   view_mode: TreeView,
                   status_msg: case changed {
-                    True -> Some(style.green("위젯 정보 수정됨"))
-                    False -> None
+                    True -> option.Some(style.green("위젯 정보 수정됨"))
+                    False -> option.None
                   },
                 ),
               )
@@ -1135,9 +1195,7 @@ fn handle_meta_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditMeta(
-                    original, fields, new_c, False, "", 0,
-                  ),
+                  view_mode: EditMeta(original, fields, new_c, False, "", 0),
                 ),
               )
             }
@@ -1147,81 +1205,102 @@ fn handle_meta_key(
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditMeta(
-                    original, fields, new_c, False, "", 0,
-                  ),
+                  view_mode: EditMeta(original, fields, new_c, False, "", 0),
                 ),
               )
             }
             KeyEnter -> {
-              // 현재 필드가 TextField → 편집 모드 진입
               case list.drop(fields, cursor) |> list.first {
-                Ok(TextField(_, v)) ->
+                Ok(ui.TextField(_, v)) ->
                   tui_loop(
                     DefineState(
                       ..state,
                       view_mode: EditMeta(
-                        original, fields, cursor, True,
-                        v, string.length(v),
+                        original,
+                        fields,
+                        cursor,
+                        True,
+                        v,
+                        string.length(v),
                       ),
                     ),
                   )
-                _ -> tui_loop(state)
+                Ok(ui.BoolField(..))
+                | Ok(ui.ReadOnlyField(..))
+                | Ok(ui.ListField(..))
+                | Ok(ui.SelectField(..))
+                | Error(_) -> tui_loop(state)
               }
             }
             KeyLeft | KeyRight -> {
-              // Bool 필드 토글
               let new_fields = toggle_bool_field(fields, cursor)
               tui_loop(
                 DefineState(
                   ..state,
                   view_mode: EditMeta(
-                    original, new_fields, cursor, False, "", 0,
+                    original,
+                    new_fields,
+                    cursor,
+                    False,
+                    "",
+                    0,
                   ),
                 ),
               )
             }
-            _ -> tui_loop(state)
+            KeyNone
+            | KeyHome
+            | KeyEnd
+            | KeyPageUp
+            | KeyPageDown
+            | KeyTab
+            | KeyBackspace
+            | KeyChar(_) -> tui_loop(state)
           }
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 열거형 편집 키 처리 ──
 
 fn handle_enum_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     EditEnum(values, cursor) ->
       case key {
         KeyEscape | KeyCtrlC -> {
-          // 편집 완료 — EditProperty로 복귀
           tui_loop(return_from_enum(state, values))
         }
         KeyUp -> {
           let new_c = int.max(0, cursor - 1)
-          tui_loop(
-            DefineState(..state, view_mode: EditEnum(values, new_c)),
-          )
+          tui_loop(DefineState(..state, view_mode: EditEnum(values, new_c)))
         }
         KeyDown -> {
           let max = int.max(0, list.length(values) - 1)
           let new_c = int.min(max, cursor + 1)
-          tui_loop(
-            DefineState(..state, view_mode: EditEnum(values, new_c)),
-          )
+          tui_loop(DefineState(..state, view_mode: EditEnum(values, new_c)))
         }
         KeyEnter -> {
-          // 현재 값 편집
           case list.drop(values, cursor) |> list.first {
             Ok(ev) ->
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: InputText(EnumKeyInput(cursor), ev.key, string.length(ev.key)),
+                  view_mode: InputText(
+                    EnumKeyInput(cursor),
+                    ev.key,
+                    string.length(ev.key),
+                  ),
                 ),
               )
             Error(_) -> tui_loop(state)
@@ -1229,10 +1308,7 @@ fn handle_enum_key(
         }
         KeyChar("a") ->
           tui_loop(
-            DefineState(
-              ..state,
-              view_mode: InputText(NewEnumKeyInput, "", 0),
-            ),
+            DefineState(..state, view_mode: InputText(NewEnumKeyInput, "", 0)),
           )
         KeyChar("d") -> {
           let new_values =
@@ -1244,22 +1320,38 @@ fn handle_enum_key(
             DefineState(
               ..state,
               view_mode: EditEnum(new_values, new_c),
-              status_msg: Some(style.green("열거형 값 삭제됨")),
+              status_msg: option.Some(style.green("열거형 값 삭제됨")),
             ),
           )
         }
-        _ -> tui_loop(state)
+        KeyNone
+        | KeyRight
+        | KeyLeft
+        | KeyBackspace
+        | KeyChar(_)
+        | KeyHome
+        | KeyEnd
+        | KeyPageUp
+        | KeyPageDown
+        | KeyTab -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 시스템 속성 선택 키 처리 ──
 
 fn handle_sys_prop_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     SelectSystemProp(cursor, options) ->
       case key {
@@ -1268,70 +1360,70 @@ fn handle_sys_prop_key(
         KeyUp -> {
           let new_c = int.max(0, cursor - 1)
           tui_loop(
-            DefineState(
-              ..state,
-              view_mode: SelectSystemProp(new_c, options),
-            ),
+            DefineState(..state, view_mode: SelectSystemProp(new_c, options)),
           )
         }
         KeyDown -> {
           let max = int.max(0, list.length(options) - 1)
           let new_c = int.min(max, cursor + 1)
           tui_loop(
-            DefineState(
-              ..state,
-              view_mode: SelectSystemProp(new_c, options),
-            ),
+            DefineState(..state, view_mode: SelectSystemProp(new_c, options)),
           )
         }
         KeyEnter -> {
           case list.drop(options, cursor) |> list.first {
             Ok(sys_key) -> {
-              let item =
-                SysPropItem(SystemProperty(sys_key))
+              let item = model.SysPropItem(model.SystemProperty(sys_key))
               let new_groups =
-                add_item_to_group(
-                  state.groups,
-                  state.add_target_group,
-                  item,
-                )
+                add_item_to_group(state.groups, state.add_target_group, item)
               tui_loop(
                 DefineState(
                   ..state,
                   groups: new_groups,
                   dirty: True,
                   view_mode: TreeView,
-                  status_msg: Some(
-                    style.green(
-                      "시스템 속성 추가됨: " <> sys_key,
-                    ),
-                  ),
+                  status_msg: option.Some(style.green("시스템 속성 추가됨: " <> sys_key)),
                 ),
               )
             }
-            Error(_) ->
-              tui_loop(DefineState(..state, view_mode: TreeView))
+            Error(_) -> tui_loop(DefineState(..state, view_mode: TreeView))
           }
         }
-        _ -> tui_loop(state)
+        KeyNone
+        | KeyRight
+        | KeyLeft
+        | KeyBackspace
+        | KeyChar(_)
+        | KeyHome
+        | KeyEnd
+        | KeyPageUp
+        | KeyPageDown
+        | KeyTab -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 삭제 확인 키 처리 ──
 
 fn handle_delete_confirm_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     ConfirmDelete(_, group_idx, item_idx) ->
       case key {
         KeyChar("y") -> {
           let new_groups = case item_idx {
-            None -> delete_group(state.groups, group_idx)
-            Some(ii) ->
+            option.None -> delete_group(state.groups, group_idx)
+            option.Some(ii) ->
               delete_item_from_group(state.groups, group_idx, ii)
           }
           let new_cursor = int.max(0, state.cursor - 1)
@@ -1342,7 +1434,7 @@ fn handle_delete_confirm_key(
               cursor: new_cursor,
               dirty: True,
               view_mode: TreeView,
-              status_msg: Some(style.green("삭제됨")),
+              status_msg: option.Some(style.green("삭제됨")),
             ),
           )
         }
@@ -1350,16 +1442,23 @@ fn handle_delete_confirm_key(
           tui_loop(DefineState(..state, view_mode: TreeView))
         _ -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 종료 확인 키 처리 ──
 
 fn handle_quit_confirm_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case key {
     KeyChar("y") -> promise.resolve(state)
     KeyChar("s") -> {
@@ -1372,82 +1471,58 @@ fn handle_quit_confirm_key(
   }
 }
 
-// ── 삭제 시작 ──
-
 fn start_delete(state: DefineState) -> DefineState {
-  let rows =
-    ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+  let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
   case list.drop(rows, state.cursor) |> list.first {
     Ok(ui.GroupRow(_, gi, caption, _, _)) ->
       DefineState(
         ..state,
-        view_mode: ConfirmDelete(
-          "그룹 [" <> caption <> "]",
-          gi,
-          None,
-        ),
+        view_mode: ConfirmDelete("그룹 [" <> caption <> "]", gi, option.None),
       )
     Ok(ui.PropertyRow(_, gi, ii, prop)) ->
       DefineState(
         ..state,
-        view_mode: ConfirmDelete(
-          "속성 " <> prop.key,
-          gi,
-          Some(ii),
-        ),
+        view_mode: ConfirmDelete("속성 " <> prop.key, gi, option.Some(ii)),
       )
     Ok(ui.SystemRow(_, gi, ii, key)) ->
       DefineState(
         ..state,
-        view_mode: ConfirmDelete(
-          "시스템 속성 " <> key,
-          gi,
-          Some(ii),
-        ),
+        view_mode: ConfirmDelete("시스템 속성 " <> key, gi, option.Some(ii)),
       )
     Error(_) -> state
   }
 }
 
-// ── 그룹/속성 추가 ──
-
 fn apply_group_name(state: DefineState, name: String) -> DefineState {
   case string.trim(name) {
     "" -> DefineState(..state, view_mode: TreeView)
     trimmed -> {
-      // 기존 그룹 이름 편집인지 확인
-      let rows =
-        ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
-      let is_rename =
-        case list.drop(rows, state.cursor) |> list.first {
-          Ok(ui.GroupRow(_, _, _, _, _)) -> True
-          _ -> False
-        }
+      let rows = ui.build_tree_rows(state.groups, state.collapsed, 0, 0)
+      let is_rename = case list.drop(rows, state.cursor) |> list.first {
+        Ok(ui.GroupRow(_, _, _, _, _)) -> True
+        Ok(ui.PropertyRow(..)) | Ok(ui.SystemRow(..)) | Error(_) -> False
+      }
       case is_rename {
         True -> {
           let gi = cursor_group_index(state)
-          let new_groups =
-            rename_group(state.groups, gi, trimmed)
+          let new_groups = rename_group(state.groups, gi, trimmed)
           DefineState(
             ..state,
             groups: new_groups,
             dirty: True,
             view_mode: TreeView,
-            status_msg: Some(style.green("그룹명 변경됨")),
+            status_msg: option.Some(style.green("그룹명 변경됨")),
           )
         }
         False -> {
-          let new_group = PropertyGroup(trimmed, [])
-          let new_groups =
-            list.append(state.groups, [new_group])
+          let new_group = model.PropertyGroup(trimmed, [])
+          let new_groups = list.append(state.groups, [new_group])
           DefineState(
             ..state,
             groups: new_groups,
             dirty: True,
             view_mode: TreeView,
-            status_msg: Some(
-              style.green("그룹 추가됨: " <> trimmed),
-            ),
+            status_msg: option.Some(style.green("그룹 추가됨: " <> trimmed)),
           )
         }
       }
@@ -1459,48 +1534,42 @@ fn apply_new_property_key(state: DefineState, key: String) -> DefineState {
   case string.trim(key) {
     "" -> DefineState(..state, view_mode: TreeView)
     trimmed -> {
-      let selected_type =
-        case
-          list.drop(types.all_types(), state.selected_type_idx)
-          |> list.first
-        {
-          Ok(t) -> t
-          Error(_) -> types.TypeString
-        }
-      let prop = types.default_property(trimmed, selected_type)
-      let item = PropItem(prop)
+      let selected_type = case
+        list.drop(model.all_types(), state.selected_type_idx)
+        |> list.first
+      {
+        Ok(t) -> t
+        Error(_) -> model.TypeString
+      }
+      let prop = model.default_property(trimmed, selected_type)
+      let item = model.PropItem(prop)
       let new_groups =
-        add_item_to_group(
-          state.groups,
-          state.add_target_group,
-          item,
-        )
+        add_item_to_group(state.groups, state.add_target_group, item)
       DefineState(
         ..state,
         groups: new_groups,
         dirty: True,
         view_mode: TreeView,
-        status_msg: Some(
-          style.green("속성 추가됨: " <> trimmed),
-        ),
+        status_msg: option.Some(style.green("속성 추가됨: " <> trimmed)),
       )
     }
   }
 }
 
-// ── 필드 수정 ──
-
 fn update_field_text(
-  fields: List(EditField),
+  fields: List(ui.EditField),
   index: Int,
   value: String,
-) -> List(EditField) {
+) -> List(ui.EditField) {
   list.index_map(fields, fn(field, i) {
     case i == index {
       True ->
         case field {
-          TextField(label, _) -> TextField(label, value)
-          _ -> field
+          ui.TextField(label, _) -> ui.TextField(label, value)
+          ui.BoolField(..)
+          | ui.ReadOnlyField(..)
+          | ui.ListField(..)
+          | ui.SelectField(..) -> field
         }
       False -> field
     }
@@ -1508,15 +1577,18 @@ fn update_field_text(
 }
 
 fn toggle_bool_field(
-  fields: List(EditField),
+  fields: List(ui.EditField),
   index: Int,
-) -> List(EditField) {
+) -> List(ui.EditField) {
   list.index_map(fields, fn(field, i) {
     case i == index {
       True ->
         case field {
-          BoolField(label, v) -> BoolField(label, !v)
-          _ -> field
+          ui.BoolField(label, v) -> ui.BoolField(label, !v)
+          ui.TextField(..)
+          | ui.ReadOnlyField(..)
+          | ui.ListField(..)
+          | ui.SelectField(..) -> field
         }
       False -> field
     }
@@ -1528,7 +1600,6 @@ fn apply_edit_field_text(
   field_index: Int,
   value: String,
 ) -> DefineState {
-  // EditProperty 모드의 필드 갱신
   case state.view_mode {
     EditProperty(original, fields, _, _, _, _) -> {
       let new_fields = update_field_text(fields, field_index, value)
@@ -1537,11 +1608,18 @@ fn apply_edit_field_text(
         view_mode: EditProperty(original, new_fields, field_index, False, "", 0),
       )
     }
-    _ -> DefineState(..state, view_mode: TreeView)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> DefineState(..state, view_mode: TreeView)
   }
 }
-
-// ── 열거형 관련 ──
 
 fn get_enum_caption(state: DefineState, index: Int) -> String {
   case state.view_mode {
@@ -1550,7 +1628,16 @@ fn get_enum_caption(state: DefineState, index: Int) -> String {
         Ok(ev) -> ev.caption
         Error(_) -> ""
       }
-    _ -> ""
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> ""
   }
 }
 
@@ -1564,14 +1651,11 @@ fn apply_enum_edit(
   let new_values =
     list.index_map(values, fn(v, i) {
       case i == index {
-        True -> EnumValue(new_key, caption)
+        True -> model.EnumValue(new_key, caption)
         False -> v
       }
     })
-  DefineState(
-    ..state,
-    view_mode: EditEnum(new_values, index),
-  )
+  DefineState(..state, view_mode: EditEnum(new_values, index))
 }
 
 fn apply_new_enum(
@@ -1580,24 +1664,22 @@ fn apply_new_enum(
   caption: String,
 ) -> DefineState {
   let values = get_current_enum_values(state)
-  let new_values =
-    list.append(values, [EnumValue(key, caption)])
+  let new_values = list.append(values, [model.EnumValue(key, caption)])
   DefineState(
     ..state,
     view_mode: EditEnum(new_values, list.length(new_values) - 1),
-    status_msg: Some(style.green("열거형 값 추가됨")),
+    status_msg: option.Some(style.green("열거형 값 추가됨")),
   )
 }
 
-fn get_current_enum_values(state: DefineState) -> List(EnumValue) {
-  // 이전 ViewMode를 추적할 수 없으므로, groups에서 현재 편집 중인 속성의 values 반환
+fn get_current_enum_values(state: DefineState) -> List(model.EnumValue) {
   let gi = state.edit_group_idx
   let ii = state.edit_item_idx
   case list.drop(state.groups, gi) |> list.first {
     Ok(group) ->
       case list.drop(group.items, ii) |> list.first {
-        Ok(PropItem(prop)) -> prop.enumeration_values
-        _ -> []
+        Ok(model.PropItem(prop)) -> prop.enumeration_values
+        Ok(model.SysPropItem(_)) | Error(_) -> []
       }
     Error(_) -> []
   }
@@ -1610,16 +1692,14 @@ fn restore_enum_view(state: DefineState) -> DefineState {
 
 fn return_from_enum(
   state: DefineState,
-  values: List(EnumValue),
+  values: List(model.EnumValue),
 ) -> DefineState {
-  // groups에서 속성 업데이트
   let gi = state.edit_group_idx
   let ii = state.edit_item_idx
-  let new_groups =
-    update_property_enum_values(state.groups, gi, ii, values)
+  let new_groups = update_property_enum_values(state.groups, gi, ii, values)
   let prop = get_property(new_groups, gi, ii)
   case prop {
-    Some(p) -> {
+    option.Some(p) -> {
       let fields = ui.property_to_fields(p)
       DefineState(
         ..state,
@@ -1628,49 +1708,39 @@ fn return_from_enum(
         view_mode: EditProperty(p, fields, 0, False, "", 0),
       )
     }
-    None ->
-      DefineState(
-        ..state,
-        groups: new_groups,
-        dirty: True,
-        view_mode: TreeView,
-      )
+    option.None ->
+      DefineState(..state, groups: new_groups, dirty: True, view_mode: TreeView)
   }
 }
 
-// ── 그룹/속성 데이터 조작 ──
-
 fn add_item_to_group(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
-  item: PropertyItem,
-) -> List(PropertyGroup) {
+  item: model.PropertyItem,
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(group, i) {
     case i == group_index {
       True ->
-        PropertyGroup(
-          ..group,
-          items: list.append(group.items, [item]),
-        )
+        model.PropertyGroup(..group, items: list.append(group.items, [item]))
       False -> group
     }
   })
 }
 
 fn delete_group(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
-) -> List(PropertyGroup) {
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(g, i) { #(i, g) })
   |> list.filter(fn(pair) { pair.0 != group_index })
   |> list.map(fn(pair) { pair.1 })
 }
 
 fn delete_item_from_group(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
   item_index: Int,
-) -> List(PropertyGroup) {
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(group, gi) {
     case gi == group_index {
       True -> {
@@ -1678,7 +1748,7 @@ fn delete_item_from_group(
           list.index_map(group.items, fn(item, ii) { #(ii, item) })
           |> list.filter(fn(pair) { pair.0 != item_index })
           |> list.map(fn(pair) { pair.1 })
-        PropertyGroup(..group, items: new_items)
+        model.PropertyGroup(..group, items: new_items)
       }
       False -> group
     }
@@ -1686,35 +1756,35 @@ fn delete_item_from_group(
 }
 
 fn rename_group(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
   name: String,
-) -> List(PropertyGroup) {
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(group, i) {
     case i == group_index {
-      True -> PropertyGroup(..group, caption: name)
+      True -> model.PropertyGroup(..group, caption: name)
       False -> group
     }
   })
 }
 
 fn update_property(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
   item_index: Int,
-  prop: Property,
-) -> List(PropertyGroup) {
+  prop: model.Property,
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(group, gi) {
     case gi == group_index {
       True -> {
         let new_items =
           list.index_map(group.items, fn(item, ii) {
             case ii == item_index {
-              True -> PropItem(prop)
+              True -> model.PropItem(prop)
               False -> item
             }
           })
-        PropertyGroup(..group, items: new_items)
+        model.PropertyGroup(..group, items: new_items)
       }
       False -> group
     }
@@ -1722,11 +1792,11 @@ fn update_property(
 }
 
 fn update_property_enum_values(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
   item_index: Int,
-  values: List(EnumValue),
-) -> List(PropertyGroup) {
+  values: List(model.EnumValue),
+) -> List(model.PropertyGroup) {
   list.index_map(groups, fn(group, gi) {
     case gi == group_index {
       True -> {
@@ -1735,16 +1805,17 @@ fn update_property_enum_values(
             case ii == item_index {
               True ->
                 case item {
-                  PropItem(prop) ->
-                    PropItem(
-                      Property(..prop, enumeration_values: values),
+                  model.PropItem(prop) ->
+                    model.PropItem(
+                      model.Property(..prop, enumeration_values: values),
                     )
-                  other -> other
+                  model.SysPropItem(system_property) ->
+                    model.SysPropItem(system_property)
                 }
               False -> item
             }
           })
-        PropertyGroup(..group, items: new_items)
+        model.PropertyGroup(..group, items: new_items)
       }
       False -> group
     }
@@ -1752,31 +1823,28 @@ fn update_property_enum_values(
 }
 
 fn get_property(
-  groups: List(PropertyGroup),
+  groups: List(model.PropertyGroup),
   group_index: Int,
   item_index: Int,
-) -> Option(Property) {
+) -> option.Option(model.Property) {
   case list.drop(groups, group_index) |> list.first {
     Ok(group) ->
       case list.drop(group.items, item_index) |> list.first {
-        Ok(PropItem(prop)) -> Some(prop)
-        _ -> None
+        Ok(model.PropItem(prop)) -> option.Some(prop)
+        Ok(model.SysPropItem(_)) | Error(_) -> option.None
       }
-    Error(_) -> None
+    Error(_) -> option.None
   }
 }
-
-// ── 타입 변경 선택 키 처리 ──
 
 fn handle_type_edit_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     SelectTypeForEdit(cursor) ->
       case key {
         KeyCtrlC | KeyEscape -> {
-          // 취소 — EditProperty 복원
           let prop =
             get_property(
               state.groups,
@@ -1784,49 +1852,35 @@ fn handle_type_edit_key(
               state.edit_item_idx,
             )
           case prop {
-            Some(p) -> {
+            option.Some(p) -> {
               let fields = ui.property_to_fields(p)
               tui_loop(
                 DefineState(
                   ..state,
-                  view_mode: EditProperty(
-                    p, fields, 0, False, "", 0,
-                  ),
+                  view_mode: EditProperty(p, fields, 0, False, "", 0),
                 ),
               )
             }
-            None ->
-              tui_loop(DefineState(..state, view_mode: TreeView))
+            option.None -> tui_loop(DefineState(..state, view_mode: TreeView))
           }
         }
         KeyUp -> {
           let new_c = int.max(0, cursor - 1)
-          tui_loop(
-            DefineState(
-              ..state,
-              view_mode: SelectTypeForEdit(new_c),
-            ),
-          )
+          tui_loop(DefineState(..state, view_mode: SelectTypeForEdit(new_c)))
         }
         KeyDown -> {
-          let max = list.length(types.all_types()) - 1
+          let max = list.length(model.all_types()) - 1
           let new_c = int.min(max, cursor + 1)
-          tui_loop(
-            DefineState(
-              ..state,
-              view_mode: SelectTypeForEdit(new_c),
-            ),
-          )
+          tui_loop(DefineState(..state, view_mode: SelectTypeForEdit(new_c)))
         }
         KeyEnter -> {
-          case list.drop(types.all_types(), cursor) |> list.first {
+          case list.drop(model.all_types(), cursor) |> list.first {
             Ok(new_type) -> {
               let gi = state.edit_group_idx
               let ii = state.edit_item_idx
               case get_property(state.groups, gi, ii) {
-                Some(prop) -> {
-                  let new_prop =
-                    types.change_property_type(prop, new_type)
+                option.Some(prop) -> {
+                  let new_prop = model.change_property_type(prop, new_type)
                   let new_groups =
                     update_property(state.groups, gi, ii, new_prop)
                   let new_fields = ui.property_to_fields(new_prop)
@@ -1836,37 +1890,55 @@ fn handle_type_edit_key(
                       groups: new_groups,
                       dirty: True,
                       view_mode: EditProperty(
-                        new_prop, new_fields, 0, False, "", 0,
+                        new_prop,
+                        new_fields,
+                        0,
+                        False,
+                        "",
+                        0,
                       ),
                     ),
                   )
                 }
-                None ->
-                  tui_loop(
-                    DefineState(..state, view_mode: TreeView),
-                  )
+                option.None ->
+                  tui_loop(DefineState(..state, view_mode: TreeView))
               }
             }
             Error(_) -> tui_loop(state)
           }
         }
-        _ -> tui_loop(state)
+        KeyNone
+        | KeyRight
+        | KeyLeft
+        | KeyBackspace
+        | KeyChar(_)
+        | KeyHome
+        | KeyEnd
+        | KeyPageUp
+        | KeyPageDown
+        | KeyTab -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | EditMultiSelect(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
-
-// ── 멀티선택 키 처리 ──
 
 fn handle_multi_select_key(
   state: DefineState,
   key: KeyInput,
-) -> Promise(DefineState) {
+) -> promise.Promise(DefineState) {
   case state.view_mode {
     EditMultiSelect(label, options, selected, cursor) ->
       case key {
         KeyEscape | KeyCtrlC -> {
-          // 선택 완료 — 속성에 반영
           tui_loop(return_from_multi_select(state, label, selected))
         }
         KeyUp -> {
@@ -1874,9 +1946,7 @@ fn handle_multi_select_key(
           tui_loop(
             DefineState(
               ..state,
-              view_mode: EditMultiSelect(
-                label, options, selected, new_c,
-              ),
+              view_mode: EditMultiSelect(label, options, selected, new_c),
             ),
           )
         }
@@ -1886,14 +1956,11 @@ fn handle_multi_select_key(
           tui_loop(
             DefineState(
               ..state,
-              view_mode: EditMultiSelect(
-                label, options, selected, new_c,
-              ),
+              view_mode: EditMultiSelect(label, options, selected, new_c),
             ),
           )
         }
         KeyEnter -> {
-          // 선택 토글
           case list.drop(options, cursor) |> list.first {
             Ok(opt) -> {
               let new_selected = case list.contains(selected, opt) {
@@ -1904,7 +1971,10 @@ fn handle_multi_select_key(
                 DefineState(
                   ..state,
                   view_mode: EditMultiSelect(
-                    label, options, new_selected, cursor,
+                    label,
+                    options,
+                    new_selected,
+                    cursor,
                   ),
                 ),
               )
@@ -1912,9 +1982,27 @@ fn handle_multi_select_key(
             Error(_) -> tui_loop(state)
           }
         }
-        _ -> tui_loop(state)
+        KeyNone
+        | KeyRight
+        | KeyLeft
+        | KeyBackspace
+        | KeyChar(_)
+        | KeyHome
+        | KeyEnd
+        | KeyPageUp
+        | KeyPageDown
+        | KeyTab -> tui_loop(state)
       }
-    _ -> tui_loop(state)
+    TreeView
+    | SelectType(..)
+    | InputText(..)
+    | EditProperty(..)
+    | EditEnum(..)
+    | EditMeta(..)
+    | SelectSystemProp(..)
+    | SelectTypeForEdit(..)
+    | ConfirmDelete(..)
+    | ConfirmQuit -> tui_loop(state)
   }
 }
 
@@ -1926,50 +2014,82 @@ fn return_from_multi_select(
   let gi = state.edit_group_idx
   let ii = state.edit_item_idx
   case get_property(state.groups, gi, ii) {
-    Some(prop) -> {
+    option.Some(prop) -> {
       let new_prop = case field_label {
-        "AttrTypes:" ->
-          Property(..prop, attribute_types: selected)
-        "AssocTypes:" ->
-          Property(..prop, association_types: selected)
-        "SelTypes:" ->
-          Property(..prop, selection_types: selected)
+        "AttrTypes:" -> model.Property(..prop, attribute_types: selected)
+        "AssocTypes:" -> model.Property(..prop, association_types: selected)
+        "SelTypes:" -> model.Property(..prop, selection_types: selected)
         _ -> prop
       }
-      let new_groups =
-        update_property(state.groups, gi, ii, new_prop)
+      let new_groups = update_property(state.groups, gi, ii, new_prop)
       let new_fields = ui.property_to_fields(new_prop)
       DefineState(
         ..state,
         groups: new_groups,
         dirty: True,
-        view_mode: EditProperty(
-          new_prop, new_fields, 0, False, "", 0,
-        ),
+        view_mode: EditProperty(new_prop, new_fields, 0, False, "", 0),
       )
     }
-    None -> DefineState(..state, view_mode: TreeView)
+    option.None -> DefineState(..state, view_mode: TreeView)
   }
 }
 
-// ── XML 저장 ──
-
 fn save_xml(state: DefineState) -> DefineState {
-  let xml =
-    serialize_widget_xml(state.widget_meta, state.groups)
-  case write_file(state.xml_path, xml) {
-    True ->
+  let xml = serialize_widget_xml(state.widget_meta, state.groups)
+  case file_boundary.write(state.xml_path, xml) {
+    Ok(Nil) ->
       DefineState(
         ..state,
         dirty: False,
-        status_msg: Some(
-          style.green("저장됨: " <> state.xml_path),
-        ),
+        status_msg: option.Some(style.green("저장됨: " <> state.xml_path)),
       )
-    False ->
+    Error(error) ->
       DefineState(
         ..state,
-        status_msg: Some(style.red("저장 실패!")),
+        status_msg: option.Some(style.red(file_error_message(error))),
       )
   }
 }
+
+fn file_error_message(error: file_boundary.FileError) -> String {
+  case error {
+    file_boundary.WidgetNameWasNotDeclared(path) ->
+      "No widgetName is declared in " <> path <> "."
+    file_boundary.WidgetXmlWasNotFound(path) ->
+      "The widget XML file does not exist: " <> path
+    file_boundary.FileCouldNotBeRead(path, reason) ->
+      "Unable to read " <> path <> ": " <> reason
+    file_boundary.FileCouldNotBeWritten(path, reason) ->
+      "Unable to write " <> path <> ": " <> reason
+  }
+}
+
+// -- FFI --
+@external(javascript, "./define_ffi.mjs", "is_tty")
+fn is_tty() -> Bool
+
+@external(javascript, "./define_ffi.mjs", "exit_process")
+fn exit_process() -> Nil
+
+@external(javascript, "./define_ffi.mjs", "terminal_size")
+fn terminal_size() -> #(Int, Int)
+
+@external(javascript, "./define_ffi.mjs", "parse_widget_xml")
+fn parse_widget_xml(
+  xml: String,
+) -> #(model.WidgetMeta, List(model.PropertyGroup))
+
+@external(javascript, "./define_ffi.mjs", "serialize_widget_xml")
+fn serialize_widget_xml(
+  meta: model.WidgetMeta,
+  groups: List(model.PropertyGroup),
+) -> String
+
+@external(javascript, "./define_ffi.mjs", "poll_key_raw")
+fn poll_key_raw(timeout_ms: Int) -> promise.Promise(#(Int, String))
+
+@external(javascript, "./define_ffi.mjs", "set_terminal_raw_mode")
+fn set_terminal_raw_mode(enabled: Bool) -> Result(Nil, RawTerminalModeError)
+
+@external(javascript, "./define_ffi.mjs", "terminal_mode_error_message")
+fn raw_terminal_mode_error_message(error: RawTerminalModeError) -> String

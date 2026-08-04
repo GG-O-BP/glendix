@@ -1,411 +1,165 @@
-**English** | [한국어](README.ko.md) | [日本語](README.ja.md)
+**English** | [Korean](README.ko.md) | [Japanese](README.ja.md)
 
 # glendix
 
-Hello! This is glendix and it's ever so brilliant! It's a Gleam library for Mendix Pluggable Widgets.
+`glendix` is the JavaScript-target build and rendering bridge for Mendix
+Pluggable Widgets written in Gleam.
 
-**You can write proper Mendix widgets using only Gleam — no JSX needed at all, how lovely is that!**
+Its package boundary is explicit:
 
-React is handled by [redraw](https://github.com/ghivert/redraw)/[redraw_dom](https://github.com/ghivert/redraw), TEA pattern by [lustre](https://github.com/lustre-labs/lustre), and Mendix types/widgets/marketplace are delegated to [mendraw](https://github.com/glendix-labs/mendraw).
+- **glendix** owns Pluggable Widgets Tools orchestration, widget definition
+  editing, external npm React bindings, and the Lustre-to-React bridge;
+- **mendraw** owns Mendix client values and bindings generated from installed
+  `.mpk` assets;
+- **mxpak** owns Marketplace search, package download, cache, lockfiles, and
+  workspace deduplication;
+- **chrobot_extra** owns generic browser automation.
 
-## What's New in v4.0
+Glendix does not implement Marketplace access or browser automation.
 
-v4.0 delegates Mendix API types, widget bindings (.mpk), classic widgets, and marketplace functionality to **mendraw**. glendix now focuses purely on build tooling, external React component bindings, and the Lustre bridge.
-
-### What's Changed Then
-
-- **Mendix types moved to mendraw**: `import glendix/mendix` → `import mendraw/mendix`, all submodules (`editable_value`, `action`, `list_value`, etc.) now under `mendraw/mendix/*`
-- **Interop moved to mendraw**: `import glendix/interop` → `import mendraw/interop`
-- **Widget moved to mendraw**: `import glendix/widget` → `import mendraw/widget`, TOML config `[tools.glendix.widgets.*]` → `[tools.mendraw.widgets.*]`
-- **Classic moved to mendraw**: `import glendix/classic` → `import mendraw/classic`
-- **Marketplace moved to mendraw**: `gleam run -m glendix/marketplace` → `gleam run -m mendraw/marketplace`
-- **glendix/binding stays**: external React component bindings remain in glendix
-- **glendix/lustre stays**: Lustre TEA bridge remains in glendix
-
-### Migration Cheatsheet (v3 → v4)
-
-| Before (v3) | After (v4) |
-|---|---|
-| `import glendix/mendix.{type JsProps}` | `import mendraw/mendix.{type JsProps}` |
-| `import glendix/mendix/editable_value` | `import mendraw/mendix/editable_value` |
-| `import glendix/mendix/action` | `import mendraw/mendix/action` |
-| `import glendix/interop` | `import mendraw/interop` |
-| `import glendix/widget` | `import mendraw/widget` |
-| `import glendix/classic` | `import mendraw/classic` |
-| `gleam run -m glendix/marketplace` | `gleam run -m mendraw/marketplace` |
-| `[tools.glendix.widgets.X]` | `[tools.mendraw.widgets.X]` |
-
-## How to Put It In Your Project
-
-Pop this into your `gleam.toml`:
+## Install
 
 ```toml
-# gleam.toml
 [dependencies]
-glendix = ">= 4.0.1 and < 5.0.0"
-mendraw = ">= 1.1.9 and < 2.0.0"
+glendix = ">= 5.0.0 and < 6.0.0"
 ```
 
-### Peer Dependencies
+Add `mendraw` only when the project uses Mendix client values or installed MPK
+components, and add/use `mxpak` only when package acquisition is required.
 
-Your widget project's `package.json` needs these as well:
+A widget project's `package.json` normally includes the Mendix Pluggable Widgets
+Tools and their React peer dependencies.
 
-```json
-{
-  "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "big.js": "^6.0.0"
-  }
-}
-```
-
-> `big.js` is only needed if your widget uses Decimal attributes. Skip it if you don't!
-
-## Let's Get Started!
-
-Here's a dead simple widget — look how short it is!
+## Basic widget
 
 ```gleam
-import mendraw/mendix.{type JsProps}
-import redraw.{type Element}
+import mendraw/mendix
+import redraw
 import redraw/dom/attribute
 import redraw/dom/html
 
-pub fn widget(props: JsProps) -> Element {
-  let name = mendix.get_string_prop(props, "sampleText")
-  html.div([attribute.class("my-widget")], [
-    html.text("Hello " <> name),
-  ])
+pub fn widget(props: mendix.JsProps) -> redraw.Element {
+  let title = mendix.get_string_prop(props, "title")
+  html.section([attribute.class("widget")], [html.text(title)])
 }
 ```
 
-`fn(JsProps) -> Element` — that's literally all a Mendix Pluggable Widget needs. Easy peasy!
+This example composes Glendix with Mendraw in the application. Glendix itself
+remains independently usable for external React bindings and Lustre rendering.
 
-### Using Lustre TEA Pattern
-
-If you prefer The Elm Architecture, use the Lustre bridge — your `update` and `view` functions are 100% standard Lustre:
+## Lustre bridge
 
 ```gleam
-import glendix/lustre as gl
-import mendraw/mendix.{type JsProps}
+import glendix/lustre as glendix_lustre
+import gleam/int
 import lustre/effect
+import lustre/element
 import lustre/element/html
 import lustre/event
-import redraw.{type Element}
+import redraw
 
 type Model { Model(count: Int) }
-type Msg { Increment }
+type Message { Increment }
 
-fn update(model, msg) {
-  case msg {
+fn update(model: Model, message: Message) -> #(Model, effect.Effect(Message)) {
+  case message {
     Increment -> #(Model(model.count + 1), effect.none())
   }
 }
 
-fn view(model: Model) {
-  html.div([], [
-    html.button([event.on_click(Increment)], [
-      html.text("Count: " <> int.to_string(model.count)),
-    ]),
+fn view(model: Model) -> element.Element(Message) {
+  html.button([event.on_click(Increment)], [
+    html.text("Count: " <> int.to_string(model.count)),
   ])
 }
 
-pub fn widget(_props: JsProps) -> Element {
-  gl.use_tea(#(Model(0), effect.none()), update, view)
+pub fn component() -> redraw.Element {
+  glendix_lustre.use_tea(#(Model(0), effect.none()), update, view)
 }
 ```
 
-## All the Modules
+## External npm React components
 
-### React & Rendering (via redraw)
-
-| Module | What It Does |
-|---|---|
-| `redraw` | Components, hooks, fragments, context — the full React API in Gleam |
-| `redraw/dom/html` | HTML tags — `div`, `span`, `input`, `text`, `none`, and loads more |
-| `redraw/dom/attribute` | Attribute type + HTML attribute functions — `class`, `id`, `style`, and more |
-| `redraw/dom/events` | Event handlers — `on_click`, `on_change`, `on_input`, with capture variants |
-| `redraw/dom/svg` | SVG elements — `svg`, `path`, `circle`, filter primitives, and more |
-| `redraw/dom` | DOM utilities — `create_portal`, `flush_sync`, resource hints |
-
-### glendix Bridges
-
-| Module | What It Does |
-|---|---|
-| `glendix/lustre` | Lustre TEA bridge — `use_tea`, `use_simple`, `render`, `embed` |
-| `glendix/binding` | For using other people's React components — configure in `gleam.toml [tools.glendix.bindings]` |
-| `glendix/define` | Interactive TUI editor for widget property definitions |
-
-### mendraw (Mendix API & Widgets)
-
-| Module | What It Does |
-|---|---|
-| `mendraw/mendix` | Core Mendix types (`ValueStatus`, `ObjectItem`, `JsProps`) + props accessors |
-| `mendraw/interop` | Renders external JS React components (from `widget`/`binding`) as `redraw.Element` |
-| `mendraw/widget` | For using `.mpk` widgets — auto-downloaded via `gleam.toml` — `component`, `prop`, `editable_prop`, `action_prop` |
-| `mendraw/classic` | Classic (Dojo) widget wrapper — `classic.render(widget_id, properties)` |
-| `mendraw/marketplace` | Search and download widgets from the Mendix Marketplace |
-
-### JS Interop Bits
-
-| Module | What It Does |
-|---|---|
-| `glendix/js/array` | Gleam List ↔ JS Array conversion |
-| `glendix/js/object` | Create objects, read/write/delete properties, call methods, `new` instances |
-| `glendix/js/json` | `stringify` and `parse` (parse returns a proper `Result`!) |
-| `glendix/js/promise` | Promise chaining (`then_`, `map`, `catch_`), `all`, `race`, `resolve`, `reject` |
-| `glendix/js/dom` | DOM helpers — `focus`, `blur`, `click`, `scroll_into_view`, `query_selector` |
-| `glendix/js/timer` | `set_timeout`, `set_interval`, `clear_timeout`, `clear_interval` |
-
-## Examples
-
-### Attribute Lists
-
-This is how you make a button with attributes — it's like a shopping list!
-
-```gleam
-import redraw/dom/attribute
-import redraw/dom/events
-import redraw/dom/html
-
-html.button(
-  [
-    attribute.class("btn btn-primary"),
-    attribute.type_("submit"),
-    attribute.disabled(False),
-    events.on_click(fn(_event) { Nil }),
-  ],
-  [html.text("Submit")],
-)
-```
-
-### useState + useEffect
-
-Here's a counter! Every time you press the button, the number goes up by one — magic!
-
-```gleam
-import gleam/int
-import redraw
-import redraw/dom/attribute
-import redraw/dom/events
-import redraw/dom/html
-
-pub fn counter(_props) -> redraw.Element {
-  let #(count, set_count) = redraw.use_state(0)
-
-  redraw.use_effect(fn() { Nil }, Nil)
-
-  html.div([], [
-    html.button(
-      [events.on_click(fn(_) { set_count(count + 1) })],
-      [html.text("Count: " <> int.to_string(count))],
-    ),
-  ])
-}
-```
-
-### Reading and Writing Mendix Values
-
-Here's how you get values out of Mendix and do things with them:
-
-```gleam
-import gleam/option.{None, Some}
-import mendraw/mendix.{type JsProps}
-import mendraw/mendix/editable_value as ev
-import redraw.{type Element}
-import redraw/dom/html
-
-pub fn render_input(props: JsProps) -> Element {
-  case mendix.get_prop(props, "myAttribute") {
-    Some(attr) -> {
-      let display = ev.display_value(attr)
-      let editable = ev.is_editable(attr)
-      // ...
-    }
-    None -> html.none()
-  }
-}
-```
-
-### Using Other People's React Components (Bindings)
-
-You can use React libraries from npm without writing any `.mjs` files yourself — isn't that ace!
-
-**1. Add bindings to `gleam.toml`:**
+Configure exports in `gleam.toml`:
 
 ```toml
 [tools.glendix.bindings]
-recharts = ["PieChart", "Pie", "Cell", "Tooltip", "Legend"]
+recharts = ["PieChart", "Pie"]
 ```
 
-**2. Install the package:**
-
-```bash
-npm install recharts
-```
-
-**3. Run `gleam run -m glendix/install`**
-
-**4. Write a nice Gleam wrapper:**
+Install the npm package, then run `gleam run -m glendix/install`. Glendix owns
+both component lookup and element construction; Mendraw is not required:
 
 ```gleam
-// src/chart/recharts.gleam
+import gleam/result
 import glendix/binding
-import mendraw/interop
-import redraw.{type Element}
-import redraw/dom/attribute.{type Attribute}
-
-fn m() { binding.module("recharts") }
-
-pub fn pie_chart(attrs: List(Attribute), children: List(Element)) -> Element {
-  interop.component_el(binding.resolve(m(), "PieChart"), attrs, children)
-}
-
-pub fn pie(attrs: List(Attribute), children: List(Element)) -> Element {
-  interop.component_el(binding.resolve(m(), "Pie"), attrs, children)
-}
-```
-
-**5. Use it in your widget:**
-
-```gleam
-import chart/recharts
+import redraw
 import redraw/dom/attribute
 
-pub fn my_chart(data) -> redraw.Element {
-  recharts.pie_chart(
-    [attribute.attribute("width", 400), attribute.attribute("height", 300)],
-    [
-      recharts.pie(
-        [attribute.attribute("data", data), attribute.attribute("dataKey", "value")],
-        [],
-      ),
-    ],
-  )
+pub fn pie_chart(
+  attributes attributes: List(attribute.Attribute),
+  children children: List(redraw.Element),
+) -> Result(redraw.Element, binding.BindingError) {
+  use module <- result.try(binding.module("recharts"))
+  use component <- result.try(binding.resolve(module, "PieChart"))
+  Ok(binding.element(component, attributes, children))
 }
 ```
 
-### Using .mpk Widgets
+`binding.element_` creates an element with children only, and
+`binding.void_element` creates one without children.
 
-You can use Marketplace widgets as React components — auto-downloaded via `gleam.toml`.
+## Installed Marketplace widgets
 
-Register your widget in `gleam.toml` and run `gleam run -m glendix/install`:
+Package acquisition is a separate step owned by mxpak:
 
 ```toml
-[tools.mendraw.widgets.Charts]
+[tools.mxpak]
+mode = "extract"
+
+[tools.mxpak.widgets.Charts]
 version = "3.0.0"
-# s3_id = "com/..."   ← if you have this, no auth needed!
 ```
 
-It downloads to `build/widgets/` cache and generates everything automatically.
-
-**Have a look at the auto-generated `src/widgets/*.gleam` files:**
-
-```gleam
-// src/widgets/switch.gleam (made automatically!)
-import mendraw/mendix.{type JsProps}
-import mendraw/interop
-import mendraw/widget
-import redraw.{type Element}
-import redraw/dom/attribute
-
-pub fn render(props: JsProps) -> Element {
-  let boolean_attribute = mendix.get_prop_required(props, "booleanAttribute")
-  let action = mendix.get_prop_required(props, "action")
-
-  let comp = widget.component("Switch")
-  interop.component_el(
-    comp,
-    [
-      attribute.attribute("booleanAttribute", boolean_attribute),
-      attribute.attribute("action", action),
-    ],
-    [],
-  )
-}
+```sh
+mxp install
+gleam run -m mendraw/install
+gleam run -m glendix/install
+gleam run -m glendix/build
 ```
 
-**4. Use it in your widget:**
+- `mxp install` writes package assets to `build/widgets/`.
+- `mendraw/install` generates typed MPK bindings.
+- `glendix/install` installs JavaScript dependencies and generates Glendix npm
+  bindings.
+- `glendix/build` creates the production `.mpk`.
 
-You can pass Mendix props through directly, or create values from scratch using the widget prop helpers:
+Projects that do not use Marketplace widgets omit the first two steps.
 
-```gleam
-// Creating values from scratch (e.g. in Lustre TEA views)
-import mendraw/widget
+## Commands
 
-widget.prop("caption", "Hello")                              // DynamicValue
-widget.editable_prop("text", value, display, set_value)      // EditableValue
-widget.action_prop("onClick", fn() { do_something() })       // ActionValue
+| Command | Responsibility |
+| --- | --- |
+| `gleam run -m glendix/install` | Install JS dependencies and generate Glendix npm bindings |
+| `gleam run -m glendix/define` | Edit widget property definitions |
+| `gleam run -m glendix/dev` | Run the development build/server |
+| `gleam run -m glendix/build` | Build a production `.mpk` |
+| `gleam run -m glendix/start` | Connect to the configured Mendix test project |
+| `gleam run -m glendix/lint` | Run lint checks |
+| `gleam run -m glendix/lint_fix` | Apply lint fixes |
+| `gleam run -m glendix/release` | Run the release build |
+
+## Development
+
+```sh
+gleam deps download
+gleam format --check
+gleam check
+gleam build --warnings-as-errors
+gleam docs build
+gleam test --runtime bun
 ```
 
-```gleam
-import widgets/switch
+## License
 
-switch.render(props)
-```
-
-### Downloading Widgets from the Marketplace
-
-You can search for widgets on the Mendix Marketplace and download them right from the terminal — it's dead handy!
-
-**1. Put your Mendix PAT in `.env`:**
-
-```
-MENDIX_PAT=your_personal_access_token
-```
-
-> You can get a PAT from [Mendix Developer Settings](https://user-settings.mendix.com/link/developersettings) — click **New Token** under **Personal Access Tokens**. You'll need the `mx:marketplace-content:read` permission.
-
-**2. Run this:**
-
-```bash
-gleam run -m mendraw/marketplace
-```
-
-**3. Use the lovely interactive menu:**
-
-```
-  ── Page 1/5+ ──
-
-  [0] Star Rating (54611) v3.2.2 — Mendix
-  [1] Switch (50324) v4.0.1 — Mendix
-  ...
-
-  Number: download | Search term: filter by name | n: next | p: previous | r: reset | q: quit
-
-> 0              ← type a number to download it
-> star           ← type a word to search
-> 0,1,3          ← use commas to pick several at once
-```
-
-Downloaded widgets are cached in `build/widgets/` and automatically added to your `gleam.toml` — no need to commit `.mpk` files to source control!
-
-## Build Scripts
-
-| Command | What It Does |
-|---------|-------------|
-| `gleam run -m glendix/install` | Installs deps + downloads TOML widgets + makes bindings + generates widget files |
-| `gleam run -m mendraw/marketplace` | Searches and downloads widgets from the Marketplace |
-| `gleam run -m glendix/define` | Interactive TUI editor for widget property definitions |
-| `gleam run -m glendix/build` | Makes a production build (.mpk file) |
-| `gleam run -m glendix/dev` | Starts a dev server (with HMR) |
-| `gleam run -m glendix/start` | Connects to a Mendix test project |
-| `gleam run -m glendix/lint` | Checks your code with ESLint |
-| `gleam run -m glendix/lint_fix` | Fixes ESLint problems automatically |
-| `gleam run -m glendix/release` | Makes a release build |
-
-## Why We Made It This Way
-
-- **Delegate, don't duplicate.** React bindings belong to redraw. TEA belongs to lustre. Mendix types and widgets belong to mendraw. glendix only handles build tooling, external React component bindings, and the Lustre bridge.
-- **Opaque types keep everything safe.** JS values like `JsProps` and `EditableValue` are wrapped up in Gleam types so you can't accidentally do something wrong — the compiler catches it!
-- **`undefined` turns into `Option` automatically.** When JS gives us `undefined` or `null`, Gleam gets `None`. When there's a real value, it becomes `Some(value)`. No faffing about!
-- **Two rendering paths.** Use redraw for direct React, or use the Lustre bridge for TEA — both output `redraw.Element`, so they compose freely.
-
-## Thank You
-
-glendix v4.0 is built on top of the brilliant [redraw](https://github.com/ghivert/redraw), [lustre](https://github.com/lustre-labs/lustre), and [mendraw](https://github.com/glendix-labs/mendraw) ecosystems. Cheers to all projects!
-
-## Licence
-
-[Blue Oak Model Licence 1.0.0](LICENSE)
+[Blue Oak Model License 1.0.0](LICENSE)

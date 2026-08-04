@@ -1,7 +1,10 @@
-// 개발 서버 시작 (HMR + .gleam 파일 변경 감지)
+//// Runs the Glendix development server command.
+////
 
 import glendix/cmd
 
-pub fn main() {
+/// Runs this module's command-line entrypoint.
+pub fn main() -> Nil {
   cmd.run_tool_dev()
+  |> cmd.report
 }

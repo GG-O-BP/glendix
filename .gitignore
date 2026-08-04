@@ -29,3 +29,7 @@ Thumbs.db
 # Marketplace
 .marketplace-cache
 
+# Glendix Family workspace links
+/.agents/
+/.codex/
+/AGENTS.md

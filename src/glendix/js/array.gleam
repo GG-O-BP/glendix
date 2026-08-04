@@ -1,11 +1,22 @@
-// JS 배열 ↔ Gleam List 변환 유틸리티
+//// Converts between Gleam lists and JavaScript arrays at the FFI boundary.
+////
 
-import gleam/dynamic.{type Dynamic}
+/// Represents a JavaScript array whose elements have a known Gleam type.
+pub type JsArray(element)
 
-/// Gleam List를 JS 배열로 변환
+/// Converts a Gleam list into a JavaScript array.
+pub fn from_list(list list: List(element)) -> JsArray(element) {
+  list_to_array(list)
+}
+
+/// Converts a JavaScript array into a Gleam list.
+pub fn to_list(array array: JsArray(element)) -> List(element) {
+  array_to_list(array)
+}
+
+// -- FFI --
 @external(javascript, "./array_ffi.mjs", "list_to_array")
-pub fn from_list(list: List(a)) -> Dynamic
+fn list_to_array(list: List(element)) -> JsArray(element)
 
-/// JS 배열을 Gleam List로 변환
 @external(javascript, "./array_ffi.mjs", "array_to_list")
-pub fn to_list(array: Dynamic) -> List(a)
+fn array_to_list(array: JsArray(element)) -> List(element)

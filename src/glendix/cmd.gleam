@@ -1,90 +1,141 @@
-// 셸 명령어 실행 유틸리티 + 패키지 매니저 감지 + TOML 설정 연동
+//// Selects and invokes the JavaScript package manager used by Glendix.
+////
 
-import gleam/option.{type Option, Some}
+import gleam/io
+import gleam/option
+import gleam/result
 
-/// 셸 명령어를 실행한다. stdio는 inherit되어 실시간 출력된다.
+/// Describes a JavaScript tooling failure.
+pub type CommandError {
+  /// A named command operation failed with the supplied JavaScript reason.
+  CommandFailed(operation: String, reason: String)
+}
+
+/// Executes a command through the JavaScript process boundary.
+pub fn exec(command command: String) -> Result(Nil, CommandError) {
+  exec_raw(command)
+  |> map_raw_error("execute command")
+}
+
+/// Detects the package-manager command used to run JavaScript tools.
+pub fn detect_runner() -> Result(String, CommandError) {
+  use override <- result.try(
+    read_pm_override()
+    |> map_raw_error("read package-manager override"),
+  )
+  case override {
+    option.Some("pnpm") -> Ok("pnpm exec")
+    option.Some("bun") -> Ok("bunx")
+    option.Some("npm") -> Ok("npx")
+    option.Some(_) | option.None -> detect_runner_from_lockfile()
+  }
+}
+
+/// Detects the package-manager install command.
+pub fn detect_install_command() -> Result(String, CommandError) {
+  use override <- result.try(
+    read_pm_override()
+    |> map_raw_error("read package-manager override"),
+  )
+  case override {
+    option.Some("pnpm") -> Ok("pnpm install")
+    option.Some("bun") -> Ok("bun install")
+    option.Some("npm") -> Ok("npm install")
+    option.Some(_) | option.None -> detect_install_from_lockfile()
+  }
+}
+
+/// Runs Pluggable Widgets Tools with the supplied arguments.
+pub fn run_tool(args args: String) -> Result(Nil, CommandError) {
+  use runner <- result.try(detect_runner())
+  exec(runner <> " pluggable-widgets-tools " <> args)
+}
+
+/// Runs Pluggable Widgets Tools through the Glendix bridge.
+pub fn run_tool_with_bridge(args args: String) -> Result(Nil, CommandError) {
+  use runner <- result.try(detect_runner())
+  run_with_bridge(runner <> " pluggable-widgets-tools " <> args)
+  |> map_raw_error("run tool with bridge")
+}
+
+/// Runs the web build in development mode through the Glendix bridge.
+pub fn run_tool_dev() -> Result(Nil, CommandError) {
+  use runner <- result.try(detect_runner())
+  run_dev_with_bridge(runner <> " pluggable-widgets-tools build:web")
+  |> map_raw_error("run development tool with bridge")
+}
+
+/// Generates Mendix widget bindings.
+pub fn generate_bindings() -> Result(Nil, CommandError) {
+  generate_bindings_raw()
+  |> map_raw_error("generate JavaScript bindings")
+}
+
+/// Prints a command error at a command-line boundary.
+@internal
+pub fn report(result result: Result(Nil, CommandError)) -> Nil {
+  case result {
+    Ok(Nil) -> Nil
+    Error(CommandFailed(operation, reason)) ->
+      io.println_error(operation <> " failed: " <> reason)
+  }
+}
+
+type RawCommandError
+
+fn detect_runner_from_lockfile() -> Result(String, CommandError) {
+  case file_exists("pnpm-lock.yaml") {
+    True -> Ok("pnpm exec")
+    False ->
+      case file_exists("bun.lockb") || file_exists("bun.lock") {
+        True -> Ok("bunx")
+        False -> Ok("npx")
+      }
+  }
+}
+
+fn detect_install_from_lockfile() -> Result(String, CommandError) {
+  case file_exists("pnpm-lock.yaml") {
+    True -> Ok("pnpm install")
+    False ->
+      case file_exists("bun.lockb") || file_exists("bun.lock") {
+        True -> Ok("bun install")
+        False -> Ok("npm install")
+      }
+  }
+}
+
+fn map_raw_error(
+  raw_result: Result(value, RawCommandError),
+  operation: String,
+) -> Result(value, CommandError) {
+  raw_result
+  |> result.map_error(fn(error) {
+    CommandFailed(
+      operation: operation,
+      reason: raw_command_error_message(error),
+    )
+  })
+}
+
+// -- FFI --
 @external(javascript, "./cmd_ffi.mjs", "exec")
-pub fn exec(command: String) -> Nil
+fn exec_raw(command command: String) -> Result(Nil, RawCommandError)
 
-/// 파일 존재 여부를 확인한다.
 @external(javascript, "./cmd_ffi.mjs", "file_exists")
 fn file_exists(path: String) -> Bool
 
-/// gleam.toml [tools.glendix].pm 오버라이드를 읽는다.
 @external(javascript, "./cmd_ffi.mjs", "read_pm_override")
-fn read_pm_override() -> Option(String)
+fn read_pm_override() -> Result(option.Option(String), RawCommandError)
 
-/// lock 파일 기반으로 패키지 매니저 runner를 감지한다.
-fn detect_runner_from_lockfile() -> String {
-  case file_exists("pnpm-lock.yaml") {
-    True -> "pnpm exec"
-    False ->
-      case file_exists("bun.lockb") || file_exists("bun.lock") {
-        True -> "bunx"
-        False -> "npx"
-      }
-  }
-}
-
-/// 패키지 매니저 runner를 감지한다. gleam.toml의 pm 오버라이드 → lock 파일 순.
-pub fn detect_runner() -> String {
-  case read_pm_override() {
-    Some("pnpm") -> "pnpm exec"
-    Some("bun") -> "bunx"
-    Some("npm") -> "npx"
-    _ -> detect_runner_from_lockfile()
-  }
-}
-
-/// lock 파일 기반으로 패키지 매니저 install 명령어를 감지한다.
-fn detect_install_from_lockfile() -> String {
-  case file_exists("pnpm-lock.yaml") {
-    True -> "pnpm install"
-    False ->
-      case file_exists("bun.lockb") || file_exists("bun.lock") {
-        True -> "bun install"
-        False -> "npm install"
-      }
-  }
-}
-
-/// install 명령어를 감지한다. gleam.toml의 pm 오버라이드 → lock 파일 순.
-pub fn detect_install_command() -> String {
-  case read_pm_override() {
-    Some("pnpm") -> "pnpm install"
-    Some("bun") -> "bun install"
-    Some("npm") -> "npm install"
-    _ -> detect_install_from_lockfile()
-  }
-}
-
-/// pluggable-widgets-tools를 감지된 runner로 실행한다.
-pub fn run_tool(args: String) -> Nil {
-  exec(detect_runner() <> " pluggable-widgets-tools " <> args)
-}
-
-/// 브릿지 JS 파일을 자동 생성/삭제하며 셸 명령어를 실행한다.
 @external(javascript, "./cmd_ffi.mjs", "run_with_bridge")
-fn run_with_bridge(command: String) -> Nil
+fn run_with_bridge(command: String) -> Result(Nil, RawCommandError)
 
-/// 브릿지 JS 자동 생성 후 pluggable-widgets-tools를 실행하고, 완료 후 브릿지를 삭제한다.
-pub fn run_tool_with_bridge(args: String) -> Nil {
-  run_with_bridge(detect_runner() <> " pluggable-widgets-tools " <> args)
-}
-
-/// 브릿지 JS 자동 생성 + .gleam 파일 변경 감지 + build:web 반복 실행
 @external(javascript, "./cmd_ffi.mjs", "run_dev_with_bridge")
-fn run_dev_with_bridge(build_command: String) -> Nil
+fn run_dev_with_bridge(build_command: String) -> Result(Nil, RawCommandError)
 
-/// .gleam 파일 변경 감지와 함께 개발 서버를 실행한다.
-/// Rollup --watch 대신 build:web를 반복 실행한다 (Windows chokidar 오버헤드 회피).
-pub fn run_tool_dev() -> Nil {
-  run_dev_with_bridge(detect_runner() <> " pluggable-widgets-tools build:web")
-}
-
-/// gleam.toml [tools.glendix.bindings]에서 바인딩 코드를 생성한다.
-/// glendix 빌드 경로에 binding_ffi.mjs를 생성하여
-/// 사용자가 .mjs 파일을 작성하지 않아도 외부 React 컴포넌트를 사용할 수 있게 한다.
 @external(javascript, "./cmd_ffi.mjs", "generate_bindings")
-pub fn generate_bindings() -> Nil
+fn generate_bindings_raw() -> Result(Nil, RawCommandError)
 
+@external(javascript, "./cmd_ffi.mjs", "command_error_message")
+fn raw_command_error_message(error: RawCommandError) -> String

@@ -16,9 +16,10 @@ packages = [
   { name = "gleam_json", version = "3.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleam_json", source = "hex", outer_checksum = "44FDAA8847BE8FC48CA7A1C089706BD54BADCC4C45B237A992EDDF9F2CDB2836" },
   { name = "gleam_otp", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_stdlib"], otp_app = "gleam_otp", source = "hex", outer_checksum = "BA6A294E295E428EC1562DC1C11EA7530DCB981E8359134BEABC8493B7B2258E" },
   { name = "gleam_stdlib", version = "1.0.3", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "1F543AFBA5D33DA493E6087F4E4C4F20D899411343512686C98A8ABB2963CF22" },
+  { name = "gleeunit", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "EC31ABA74256AEA531EDF8169931D775BBB384FED0A8A1BDC4DD9354E3E21826" },
   { name = "houdini", version = "1.2.1", build_tools = ["gleam"], requirements = [], otp_app = "houdini", source = "hex", outer_checksum = "6F8AC2F12974567FB744BEA66AC93CEB76AAEA19AD28564623F76CDA9BC26A85" },
   { name = "lustre", version = "5.7.1", build_tools = ["gleam"], requirements = ["exception", "gleam_erlang", "gleam_json", "gleam_otp", "gleam_stdlib", "houdini"], otp_app = "lustre", source = "hex", outer_checksum = "663A2D1A3458914CA537A42AC07E601DD3FD85415EBDAF4717F2DFF6E86F90F9" },
-  { name = "mendraw", version = "1.2.1", build_tools = ["gleam"], requirements = ["etch", "gleam_javascript", "gleam_stdlib", "redraw", "redraw_dom"], source = "local", path = "../mendraw" },
+  { name = "mendraw", version = "2.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "redraw", "redraw_dom"], source = "local", path = "../mendraw" },
   { name = "redraw", version = "19.2.2", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_stdlib"], otp_app = "redraw", source = "hex", outer_checksum = "B8CEEB74E8846CE10B8360B924DAD22441B61D947F9449854164F0686C4B8661" },
   { name = "redraw_dom", version = "19.2.2", build_tools = ["gleam"], requirements = ["gleam_fetch", "gleam_stdlib", "redraw"], otp_app = "redraw_dom", source = "hex", outer_checksum = "80278296AD6E3D4457D6FF6A14FEA3E90696284BEA297BDE10E430FC4CE726B8" },
 ]
@@ -26,7 +27,9 @@ packages = [
 [requirements]
 etch = { version = ">= 1.4.0 and < 2.0.0" }
 gleam_javascript = { version = ">= 1.0.1 and < 2.0.0" }
+gleam_json = { version = ">= 3.1.0 and < 4.0.0" }
 gleam_stdlib = { version = ">= 1.0.3 and < 2.0.0" }
+gleeunit = { version = ">= 1.11.0 and < 2.0.0" }
 lustre = { version = ">= 5.7.1 and < 6.0.0" }
 mendraw = { path = "../mendraw" }
 redraw = { version = ">= 19.2.2 and < 20.0.0" }
