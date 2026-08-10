@@ -1,4 +1,5 @@
 import { toList } from "./gleam.mjs";
+import { render_rollup_config } from "./glendix/cmd_ffi.mjs";
 
 function clone_list(list, clone) {
   return toList(list.toArray().map(clone));
@@ -55,4 +56,16 @@ export function rendered_tree_summary(element) {
 
 export function test_component() {
   return "section";
+}
+
+export function generated_rollup_config_source(withSecondaryWidget) {
+  return render_rollup_config(withSecondaryWidget ? ["SecondaryWidget"] : []);
+}
+
+export function process_exit_code() {
+  return process.exitCode ?? 0;
+}
+
+export function reset_process_exit_code() {
+  process.exitCode = 0;
 }

@@ -76,8 +76,10 @@ pub fn generate_bindings() -> Result(Nil, CommandError) {
 pub fn report(result result: Result(Nil, CommandError)) -> Nil {
   case result {
     Ok(Nil) -> Nil
-    Error(CommandFailed(operation, reason)) ->
+    Error(CommandFailed(operation, reason)) -> {
       io.println_error(operation <> " failed: " <> reason)
+      fail_process()
+    }
   }
 }
 
@@ -139,3 +141,6 @@ fn generate_bindings_raw() -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "command_error_message")
 fn raw_command_error_message(error: RawCommandError) -> String
+
+@external(javascript, "./cmd_ffi.mjs", "fail_process")
+fn fail_process() -> Nil

@@ -3,6 +3,7 @@
 
 import gleam/json
 import gleam/list
+import gleam/string
 import gleeunit
 import gleeunit/should
 import glendix/binding
@@ -32,6 +33,28 @@ pub fn cmd_package_lock_selects_npm_test() -> Nil {
   cmd.detect_install_command()
   |> should.be_ok
   |> should.equal("npm install")
+}
+
+/// Verifies generated Rollup configurations terminate after the final bundle.
+pub fn cmd_generated_rollup_config_force_closes_test() -> Nil {
+  [False, True]
+  |> list.each(fn(with_secondary_widget) {
+    let source = generated_rollup_config_source(with_secondary_widget)
+    source
+    |> string.contains("name: \"glendix-force-close\"")
+    |> should.be_true
+    source
+    |> string.contains("return closeAfterBuild(result);")
+    |> should.be_true
+  })
+}
+
+/// Verifies command reporting marks the JavaScript process as failed.
+pub fn cmd_report_marks_process_failure_test() -> Nil {
+  cmd.report(Error(cmd.CommandFailed("test operation", "test reason")))
+  process_exit_code()
+  |> should.equal(1)
+  reset_process_exit_code()
 }
 
 /// Verifies missing generated bindings return a typed error.
@@ -143,3 +166,12 @@ fn rendered_tree_summary(tree: redraw.Element) -> String
 
 @external(javascript, "./glendix_test_ffi.mjs", "test_component")
 fn test_component() -> binding.JsComponent
+
+@external(javascript, "./glendix_test_ffi.mjs", "generated_rollup_config_source")
+fn generated_rollup_config_source(with_secondary_widget: Bool) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "process_exit_code")
+fn process_exit_code() -> Int
+
+@external(javascript, "./glendix_test_ffi.mjs", "reset_process_exit_code")
+fn reset_process_exit_code() -> Nil
