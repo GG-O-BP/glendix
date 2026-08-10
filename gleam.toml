@@ -18,7 +18,7 @@ gleam_javascript = ">= 1.0.1 and < 2.0.0"
 redraw = ">= 19.2.2 and < 20.0.0"
 redraw_dom = ">= 19.2.2 and < 20.0.0"
 lustre = ">= 5.7.1 and < 6.0.0"
-mendraw = { path = "../mendraw" }
+mendraw = ">= 2.0.0 and < 3.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.11.0 and < 2.0.0"
