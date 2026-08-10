@@ -12,7 +12,7 @@
 - **mendraw**: Mendix クライアント値とインストール済み `.mpk` 資産の型付き
   バインディング
 - **mxpak**: Marketplace 検索、ダウンロード、キャッシュ、ロック、重複排除
-- **gleam_rover**: 汎用ブラウザ自動化
+- **glendam**: 汎用ブラウザ自動化
 
 Glendix は Marketplace やブラウザ自動化を実装しません。
 
