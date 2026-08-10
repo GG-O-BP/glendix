@@ -3,7 +3,7 @@ version = "5.0.0"
 gleam = ">= 1.17.0"
 target = "javascript"
 description = "Mendix widget build tooling with external React bindings and a Lustre bridge"
-licences = ["BlueOak-1.0.0"]
+licences = ["MIT"]
 repository = { type = "github", user = "glendix-labs", repo = "glendix" }
 
 [javascript]
