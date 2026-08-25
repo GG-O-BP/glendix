@@ -20,11 +20,49 @@ Glendix は Marketplace やブラウザ自動化を実装しません。
 
 ```toml
 [dependencies]
-glendix = ">= 5.0.0 and < 6.0.0"
+glendix = ">= 5.1.0 and < 6.0.0"
 ```
 
 Mendix クライアント値または MPK コンポーネントが必要な場合だけ `mendraw`、
 パッケージ取得が必要な場合だけ `mxpak` を利用します。
+
+## 実験的ネイティブパッケージマネージャー
+
+Glendix はプロジェクトのパッケージマネージャー・JavaScript runtime と
+Mendix Pluggable Widgets Tools の npm 前提を次のように分離できます。
+
+```toml
+[javascript]
+runtime = "bun"
+
+[tools.glendix]
+pm = "bun"
+compatibility = "experimental-native"
+```
+
+| `pm` | Gleam runtime | dependency install |
+| --- | --- | --- |
+| `npm` | `node` | `npm install` |
+| `yarn` | `node` | `yarn install` |
+| `pnpm` | `node` | `pnpm install` |
+| `bun` | `bun` | `bun install` |
+| `deno` | `deno` | 必要な lifecycle script だけを許可した hoisted/manual `deno install` |
+
+このモードでは、インストール済み Pluggable Widgets Tools CLI を選択した
+runtime で直接実行します。一時的な `node`・`npm`・`npx` 互換 shim はその
+子プロセスの `PATH` だけに追加され、ツールの強制 Node/npm check を満たし、
+対応する install/run/exec を選択したパッケージマネージャーへ転送します。
+コマンド終了時に shim を削除し、global binary・lockfile・パッケージマネージャー
+設定は変更しません。対話的な npm lockfile migration も無効にするため、選択した
+マネージャーの lockfile が正となります。
+
+これは完全な npm emulator ではなく明示的な実験モードです。npm と Bun は
+Mendix toolchain が必要とする lifecycle script を許可・信頼し、Yarn は
+`node-modules` linker、pnpm も同じ native build script の許可が必要です。
+Deno は Gleam command の permission と install 時の script 許可が必要です。
+dependency module は `gleam run -m glendix/build --runtime bun` または
+`--runtime deno` のように一致する runtime を明示し、npm/Yarn/pnpm では
+`--runtime node` を使用します。
 
 ## 外部 npm React コンポーネント
 

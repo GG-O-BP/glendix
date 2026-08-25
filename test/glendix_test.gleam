@@ -35,6 +35,41 @@ pub fn cmd_package_lock_selects_npm_test() -> Nil {
   |> should.equal("npm install")
 }
 
+/// Verifies every supported manager has an explicit runner and installer.
+pub fn cmd_supported_package_manager_commands_test() -> Nil {
+  [
+    #("npm", "npx", "npm install"),
+    #("yarn", "yarn exec", "yarn install"),
+    #("pnpm", "pnpm exec", "pnpm install"),
+    #("bun", "bunx", "bun install"),
+    #(
+      "deno",
+      "deno x -A -p @mendix/pluggable-widgets-tools",
+      "deno install --node-modules-dir=manual --node-modules-linker=hoisted --allow-scripts=npm:@parcel/watcher,npm:@swc/core,npm:core-js,npm:unrs-resolver",
+    ),
+  ]
+  |> list.each(fn(entry) {
+    let #(package_manager, runner, installer) = entry
+    cmd.package_manager_commands(package_manager)
+    |> should.be_ok
+    |> should.equal(#(runner, installer))
+  })
+}
+
+/// Verifies unsupported package managers fail with actionable context.
+pub fn cmd_unsupported_package_manager_error_test() -> Nil {
+  case cmd.package_manager_commands("unknown") {
+    Error(cmd.CommandFailed(operation, reason)) -> {
+      operation
+      |> should.equal("select package manager")
+      reason
+      |> string.contains("unknown")
+      |> should.be_true
+    }
+    Ok(_) -> should.fail()
+  }
+}
+
 /// Verifies generated Rollup configurations terminate after the final bundle.
 pub fn cmd_generated_rollup_config_force_closes_test() -> Nil {
   [False, True]

@@ -19,11 +19,48 @@ Glendix는 Marketplace나 브라우저 자동화를 구현하지 않는다.
 
 ```toml
 [dependencies]
-glendix = ">= 5.0.0 and < 6.0.0"
+glendix = ">= 5.1.0 and < 6.0.0"
 ```
 
 Mendix 클라이언트 값이나 MPK 컴포넌트가 필요할 때만 `mendraw`를 추가하고,
 패키지 설치가 필요할 때만 `mxpak`을 사용한다.
+
+## 실험적 네이티브 패키지 매니저
+
+Glendix는 프로젝트의 패키지 매니저·JavaScript 런타임과 Mendix Pluggable
+Widgets Tools의 npm 전제를 다음처럼 격리할 수 있다.
+
+```toml
+[javascript]
+runtime = "bun"
+
+[tools.glendix]
+pm = "bun"
+compatibility = "experimental-native"
+```
+
+| `pm` | Gleam 런타임 | 의존성 설치 |
+| --- | --- | --- |
+| `npm` | `node` | `npm install` |
+| `yarn` | `node` | `yarn install` |
+| `pnpm` | `node` | `pnpm install` |
+| `bun` | `bun` | `bun install` |
+| `deno` | `deno` | 필수 lifecycle script만 허용한 hoisted/manual `deno install` |
+
+이 모드에서 Glendix는 설치된 Pluggable Widgets Tools CLI를 선택한 런타임으로
+직접 실행한다. 임시 `node`·`npm`·`npx` 호환 shim은 그 자식 프로세스의
+`PATH`에만 추가되어 도구의 강제 Node/npm 검사를 만족시키고, 지원하는
+install/run/exec 호출을 선택한 패키지 매니저로 전달한다. 명령 종료 시 shim을
+제거하며 전역 바이너리·락파일·패키지 매니저 설정은 바꾸지 않는다. 대화형 npm
+락파일 migration도 끄므로 선택한 매니저의 락파일이 기준이다.
+
+이는 완전한 npm 에뮬레이터가 아닌 명시적 실험 모드다. npm과 Bun은 Mendix 도구
+체인에 필요한 lifecycle script를 허용·신뢰하고, Yarn은 `node-modules` linker를
+사용하며, pnpm도 같은 native build script를 허용해야 한다. Deno 프로젝트는
+Gleam 명령에 필요한 권한과 설치 시 해당 script 허용이 필요하다. 의존 패키지
+모듈은 `gleam run -m glendix/build --runtime bun` 또는
+`--runtime deno`처럼 일치하는 런타임을 명시하고, npm/Yarn/pnpm은
+`--runtime node`를 사용한다.
 
 ## Lustre 브리지
 

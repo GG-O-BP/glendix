@@ -1,7 +1,28 @@
-import { execSync, spawnSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { execSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Some, None } from "../../gleam_stdlib/gleam/option.mjs";
 import { Ok, Error as GleamError } from "../gleam.mjs";
+
+const EXPERIMENTAL_NATIVE_MODE = "experimental-native";
+const EXPERIMENTAL_NATIVE_RUNNER = "--glendix-experimental-native-runner";
+const EXPERIMENTAL_NATIVE_SHIM = "--glendix-experimental-native-shim";
+const PWT_NODE_VERSION = "v22.18.0";
+const PWT_NPM_VERSION = "11.6.2";
 
 function errorMessage(error) {
   return error instanceof globalThis.Error ? error.message : String(error);
@@ -31,7 +52,7 @@ function parseGlendixToml() {
   if (!existsSync("gleam.toml")) return null;
   const content = readFileSync("gleam.toml", "utf-8");
   const lines = content.split(/\r?\n/);
-  const result = { pm: null, bindings: {} };
+  const result = { pm: null, compatibility: null, bindings: {} };
   let currentSection = null;
   for (const line of lines) {
     const trimmed = line.trim();
@@ -52,6 +73,7 @@ function parseGlendixToml() {
     const value = parseTomlValue(kvMatch[2].trim());
     if (currentSection === "root") {
       if (key === "pm") result.pm = value;
+      if (key === "compatibility") result.compatibility = value;
     } else if (currentSection === "bindings") {
       result.bindings[key] = value;
     }
@@ -66,6 +88,23 @@ function readPmOverride() {
 export function read_pm_override() {
   try {
     return new Ok(readPmOverride());
+  } catch (error) {
+    return new GleamError(error);
+  }
+}
+
+export function read_experimental_native_mode() {
+  try {
+    const compatibility = parseGlendixToml()?.compatibility;
+    if (compatibility === null || compatibility === undefined) {
+      return new Ok(false);
+    }
+    if (compatibility !== EXPERIMENTAL_NATIVE_MODE) {
+      throw new Error(
+        `Unsupported [tools.glendix].compatibility value: ${compatibility}`,
+      );
+    }
+    return new Ok(true);
   } catch (error) {
     return new GleamError(error);
   }
@@ -456,6 +495,387 @@ function filterBabelNotes(stderr) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+function splitCommandArguments(args) {
+  if (args.trim() === "") return [];
+  const matches = args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+  return matches.map(argument => {
+    if (
+      (argument.startsWith('"') && argument.endsWith('"'))
+      || (argument.startsWith("'") && argument.endsWith("'"))
+    ) {
+      return argument.slice(1, -1);
+    }
+    return argument;
+  });
+}
+
+function findExecutable(name) {
+  const pathValue = process.env.PATH ?? process.env.Path ?? "";
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+    : [""];
+  let lastInspectionError;
+  for (const directory of pathValue.split(delimiter)) {
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = join(directory, name + extension.toLowerCase());
+      const uppercaseCandidate = join(directory, name + extension.toUpperCase());
+      for (const path of [candidate, uppercaseCandidate]) {
+        try {
+          if (existsSync(path) && statSync(path).isFile()) return path;
+        } catch (error) {
+          lastInspectionError = error;
+        }
+      }
+    }
+  }
+  throw new Error(
+    `Cannot find required experimental-native executable: ${name}`,
+    { cause: lastInspectionError },
+  );
+}
+
+function runtimeNameForPackageManager(packageManager) {
+  switch (packageManager) {
+    case "bun": return "bun";
+    case "deno": return "deno";
+    case "npm":
+    case "yarn":
+    case "pnpm":
+      return "node";
+    default:
+      throw new Error(`Unsupported experimental-native package manager: ${packageManager}`);
+  }
+}
+
+function runtimeArguments(runtimeName, scriptPath, args) {
+  if (runtimeName === "deno") {
+    return [
+      "run",
+      "-A",
+      "--node-modules-dir=manual",
+      scriptPath,
+      ...args,
+    ];
+  }
+  return [scriptPath, ...args];
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
+function commandQuote(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+function renderShim(runtimeExecutable, runtimeName, modulePath, shimName) {
+  const args = runtimeArguments(
+    runtimeName,
+    modulePath,
+    [EXPERIMENTAL_NATIVE_SHIM, shimName],
+  );
+  if (process.platform === "win32") {
+    const command = [runtimeExecutable, ...args].map(commandQuote).join(" ");
+    return `@echo off\r\n${command} %*\r\nexit /b %errorlevel%\r\n`;
+  }
+  const command = [runtimeExecutable, ...args].map(shellQuote).join(" ");
+  return `#!/bin/sh\nexec ${command} "$@"\n`;
+}
+
+function writeShim(directory, name, runtimeExecutable, runtimeName, modulePath) {
+  const filename = process.platform === "win32" ? `${name}.cmd` : name;
+  const path = join(directory, filename);
+  writeFileSync(
+    path,
+    renderShim(runtimeExecutable, runtimeName, modulePath, name),
+    "utf-8",
+  );
+  if (process.platform !== "win32") chmodSync(path, 0o700);
+}
+
+function resolvePluggableWidgetsToolsBin() {
+  const directPackageJson = join(
+    process.cwd(),
+    "node_modules",
+    "@mendix",
+    "pluggable-widgets-tools",
+    "package.json",
+  );
+  let packageJsonPath = directPackageJson;
+  if (!existsSync(packageJsonPath)) {
+    const projectRequire = createRequire(join(process.cwd(), "package.json"));
+    packageJsonPath = projectRequire.resolve(
+      "@mendix/pluggable-widgets-tools/package.json",
+    );
+  }
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+  const bin = typeof packageJson.bin === "string"
+    ? packageJson.bin
+    : packageJson.bin?.["pluggable-widgets-tools"];
+  if (!bin) {
+    throw new Error(
+      "@mendix/pluggable-widgets-tools does not declare its CLI binary",
+    );
+  }
+  const path = join(dirname(packageJsonPath), bin);
+  if (!existsSync(path)) {
+    throw new Error(`Cannot find Pluggable Widgets Tools CLI: ${path}`);
+  }
+  return path;
+}
+
+function createExperimentalNativeEnvironment(packageManager) {
+  const runtimeName = runtimeNameForPackageManager(packageManager);
+  const runtimeExecutable = findExecutable(runtimeName);
+  const managerExecutable = findExecutable(packageManager);
+  const shimDirectory = mkdtempSync(
+    join(tmpdir(), "glendix-experimental-native-"),
+  );
+  const modulePath = fileURLToPath(import.meta.url);
+  try {
+    for (const shimName of ["node", "npm", "npx"]) {
+      writeShim(
+        shimDirectory,
+        shimName,
+        runtimeExecutable,
+        runtimeName,
+        modulePath,
+      );
+    }
+  } catch (error) {
+    rmSync(shimDirectory, { recursive: true, force: true });
+    throw error;
+  }
+  const originalPath = process.env.PATH ?? process.env.Path ?? "";
+  const scopedPath = [shimDirectory, originalPath].filter(Boolean).join(delimiter);
+  return {
+    cleanup() {
+      rmSync(shimDirectory, { recursive: true, force: true });
+    },
+    environment: {
+      ...process.env,
+      CI: "true",
+      PATH: scopedPath,
+      Path: scopedPath,
+      GLENDIX_EXPERIMENTAL_NATIVE_PM: packageManager,
+      GLENDIX_EXPERIMENTAL_NATIVE_RUNTIME: runtimeName,
+      GLENDIX_EXPERIMENTAL_NATIVE_RUNTIME_EXECUTABLE: runtimeExecutable,
+      GLENDIX_EXPERIMENTAL_NATIVE_MANAGER_EXECUTABLE: managerExecutable,
+    },
+    runtimeExecutable,
+    runtimeName,
+  };
+}
+
+function writeProcessOutput(result) {
+  if (result.stdout && result.stdout.length > 0) process.stdout.write(result.stdout);
+  if (result.stderr && result.stderr.length > 0) {
+    const filtered = filterBabelNotes(result.stderr.toString());
+    if (filtered) process.stderr.write(filtered + "\n");
+  }
+}
+
+function runExperimentalNativeProcessOrThrow(packageManager, args) {
+  const scoped = createExperimentalNativeEnvironment(packageManager);
+  try {
+    const modulePath = fileURLToPath(import.meta.url);
+    const toolPath = resolvePluggableWidgetsToolsBin();
+    const runtimeArgs = runtimeArguments(scoped.runtimeName, modulePath, [
+      EXPERIMENTAL_NATIVE_RUNNER,
+      toolPath,
+      ...splitCommandArguments(args),
+    ]);
+    console.log(
+      `[glendix] experimental-native (${packageManager}): `
+      + "using scoped Node/npm compatibility shims",
+    );
+    const result = spawnSync(scoped.runtimeExecutable, runtimeArgs, {
+      env: scoped.environment,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    writeProcessOutput(result);
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      const error = new Error(
+        `experimental-native Pluggable Widgets Tools failed for ${packageManager}`,
+      );
+      error.status = result.status;
+      throw error;
+    }
+  } finally {
+    scoped.cleanup();
+  }
+}
+
+function spawnShimProcess(executable, args) {
+  const shell = process.platform === "win32"
+    && /\.(?:cmd|bat)$/i.test(executable);
+  const result = spawnSync(executable, args, {
+    env: process.env,
+    shell,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    console.error(`[glendix] experimental-native shim failed: ${errorMessage(result.error)}`);
+    return 1;
+  }
+  return result.status ?? 1;
+}
+
+function npmInstallInvocation(packageManager, managerExecutable, args) {
+  if (args.includes("--package-lock-only")) {
+    throw new Error(
+      "experimental-native does not emulate npm --package-lock-only; "
+      + `use ${packageManager}'s lockfile command directly`,
+    );
+  }
+  switch (packageManager) {
+    case "npm": return [managerExecutable, ["install", ...args]];
+    case "yarn": return [managerExecutable, ["install", ...args]];
+    case "pnpm": return [managerExecutable, ["install", ...args]];
+    case "bun": return [managerExecutable, ["install", ...args]];
+    case "deno":
+      return [managerExecutable, [
+        "install",
+        "--node-modules-dir=manual",
+        "--node-modules-linker=hoisted",
+        "--allow-scripts=npm:@parcel/watcher,npm:@swc/core,npm:core-js,npm:unrs-resolver",
+        ...args,
+      ]];
+    default:
+      throw new Error(`Unsupported npm install adapter: ${packageManager}`);
+  }
+}
+
+function npmRunInvocation(packageManager, managerExecutable, args) {
+  switch (packageManager) {
+    case "deno": return [managerExecutable, ["task", ...args]];
+    case "npm":
+    case "yarn":
+    case "pnpm":
+    case "bun":
+      return [managerExecutable, ["run", ...args]];
+    default:
+      throw new Error(`Unsupported npm run adapter: ${packageManager}`);
+  }
+}
+
+function npmExecInvocation(packageManager, managerExecutable, args) {
+  switch (packageManager) {
+    case "npm": return [managerExecutable, ["exec", ...args]];
+    case "yarn": return [managerExecutable, ["exec", ...args]];
+    case "pnpm": return [managerExecutable, ["exec", ...args]];
+    case "bun": return [managerExecutable, ["x", ...args]];
+    case "deno": {
+      const [packageName, ...packageArgs] = args;
+      if (!packageName) {
+        throw new Error("experimental-native npx adapter requires a package name");
+      }
+      return [managerExecutable, [
+        "x",
+        "-A",
+        "-p",
+        packageName,
+        packageName,
+        ...packageArgs,
+      ]];
+    }
+    default:
+      throw new Error(`Unsupported npm exec adapter: ${packageManager}`);
+  }
+}
+
+function runNpmShim(args) {
+  if (["--version", "-v", "version"].includes(args[0])) {
+    console.log(PWT_NPM_VERSION);
+    return 0;
+  }
+  const packageManager = process.env.GLENDIX_EXPERIMENTAL_NATIVE_PM;
+  const managerExecutable =
+    process.env.GLENDIX_EXPERIMENTAL_NATIVE_MANAGER_EXECUTABLE;
+  if (!packageManager || !managerExecutable) {
+    throw new Error("experimental-native npm shim environment is incomplete");
+  }
+  const [command, ...commandArgs] = args;
+  let invocation;
+  switch (command) {
+    case "install":
+    case "i":
+      invocation = npmInstallInvocation(
+        packageManager,
+        managerExecutable,
+        commandArgs,
+      );
+      break;
+    case "run":
+      invocation = npmRunInvocation(packageManager, managerExecutable, commandArgs);
+      break;
+    case "exec":
+    case "x":
+      invocation = npmExecInvocation(packageManager, managerExecutable, commandArgs);
+      break;
+    default:
+      throw new Error(
+        `experimental-native does not emulate npm ${command ?? ""}`.trim(),
+      );
+  }
+  return spawnShimProcess(invocation[0], invocation[1]);
+}
+
+function runNodeShim(args) {
+  if (["--version", "-v"].includes(args[0])) {
+    console.log(PWT_NODE_VERSION);
+    return 0;
+  }
+  const runtimeExecutable =
+    process.env.GLENDIX_EXPERIMENTAL_NATIVE_RUNTIME_EXECUTABLE;
+  const runtimeName = process.env.GLENDIX_EXPERIMENTAL_NATIVE_RUNTIME;
+  if (!runtimeExecutable || !runtimeName) {
+    throw new Error("experimental-native node shim environment is incomplete");
+  }
+  if (args.length === 0) {
+    throw new Error("experimental-native node shim requires a script path");
+  }
+  const [scriptPath, ...scriptArgs] = args;
+  return spawnShimProcess(
+    runtimeExecutable,
+    runtimeArguments(runtimeName, scriptPath, scriptArgs),
+  );
+}
+
+function runExperimentalNativeShim(shimName, args) {
+  try {
+    if (shimName === "node") return runNodeShim(args);
+    if (shimName === "npm") return runNpmShim(args);
+    if (shimName === "npx") {
+      const packageManager = process.env.GLENDIX_EXPERIMENTAL_NATIVE_PM;
+      const managerExecutable =
+        process.env.GLENDIX_EXPERIMENTAL_NATIVE_MANAGER_EXECUTABLE;
+      if (!packageManager || !managerExecutable) {
+        throw new Error("experimental-native npx shim environment is incomplete");
+      }
+      const invocation = npmExecInvocation(
+        packageManager,
+        managerExecutable,
+        args,
+      );
+      return spawnShimProcess(invocation[0], invocation[1]);
+    }
+    throw new Error(`Unknown experimental-native shim: ${shimName}`);
+  } catch (error) {
+    console.error(`[glendix] ${errorMessage(error)}`);
+    return 1;
+  }
+}
+
+function startExperimentalNativeRunner(toolPath, args) {
+  const require = createRequire(import.meta.url);
+  process.argv = [process.execPath, toolPath, ...args];
+  require(toolPath);
+}
+
 function runWithBridgeOrThrow(command) {
   const { cleanup } = setupBridge();
   process.on("SIGINT", () => { cleanup(); process.exit(130); });
@@ -485,19 +905,37 @@ export function run_with_bridge(command) {
   }
 }
 
-function runDevWithBridgeOrThrow(buildCommand) {
-  const { cleanup } = setupBridge();
-  function execBuild() {
-    const result = spawnSync(buildCommand, { shell: true, stdio: ["inherit", "pipe", "pipe"] });
-    if (result.stdout && result.stdout.length > 0) process.stdout.write(result.stdout);
-    if (result.stderr && result.stderr.length > 0) {
-      const filtered = filterBabelNotes(result.stderr.toString());
-      if (filtered) process.stderr.write(filtered + "\n");
-    }
-    if (result.status !== 0) throw new Error("Build failed");
+export function run_experimental_native(packageManager, args) {
+  try {
+    runExperimentalNativeProcessOrThrow(packageManager, args);
+    return new Ok(undefined);
+  } catch (error) {
+    return new GleamError(error);
   }
+}
+
+export function run_experimental_native_with_bridge(packageManager, args) {
+  const { cleanup } = setupBridge();
+  process.on("SIGINT", () => { cleanup(); process.exit(130); });
+  try {
+    runExperimentalNativeProcessOrThrow(packageManager, args);
+    return new Ok(undefined);
+  } catch (error) {
+    return new GleamError(error);
+  } finally {
+    cleanup();
+  }
+}
+
+function runDevWithBridgeUsing(execBuild) {
+  const { cleanup } = setupBridge();
   console.log("[glendix] 초기 빌드 시작\n");
-  execBuild();
+  try {
+    execBuild();
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
   console.log("\n[glendix] .gleam 파일 변경 감지 활성화 — 저장 시 자동 빌드\n");
   const mtimes = {};
   function scanGleam(dir) {
@@ -563,11 +1001,49 @@ function runDevWithBridgeOrThrow(buildCommand) {
   });
 }
 
+function runDevWithBridgeOrThrow(buildCommand) {
+  runDevWithBridgeUsing(() => {
+    const result = spawnSync(buildCommand, {
+      shell: true,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    writeProcessOutput(result);
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error("Build failed");
+  });
+}
+
 export function run_dev_with_bridge(buildCommand) {
   try {
     runDevWithBridgeOrThrow(buildCommand);
     return new Ok(undefined);
   } catch (error) {
     return new GleamError(error);
+  }
+}
+
+export function run_experimental_native_dev_with_bridge(packageManager, args) {
+  try {
+    runDevWithBridgeUsing(() => {
+      runExperimentalNativeProcessOrThrow(packageManager, args);
+    });
+    return new Ok(undefined);
+  } catch (error) {
+    return new GleamError(error);
+  }
+}
+
+if (process.argv[2] === EXPERIMENTAL_NATIVE_SHIM) {
+  const [, , , shimName, ...shimArgs] = process.argv;
+  process.exit(runExperimentalNativeShim(shimName, shimArgs));
+}
+
+if (process.argv[2] === EXPERIMENTAL_NATIVE_RUNNER) {
+  const [, , , toolPath, ...toolArgs] = process.argv;
+  try {
+    startExperimentalNativeRunner(toolPath, toolArgs);
+  } catch (error) {
+    console.error(`[glendix] experimental-native runner failed: ${errorMessage(error)}`);
+    process.exit(1);
   }
 }

@@ -21,7 +21,7 @@ Glendix does not implement Marketplace access or browser automation.
 
 ```toml
 [dependencies]
-glendix = ">= 5.0.0 and < 6.0.0"
+glendix = ">= 5.1.0 and < 6.0.0"
 ```
 
 Add `mendraw` only when the project uses Mendix client values or installed MPK
@@ -29,6 +29,46 @@ components, and add/use `mxpak` only when package acquisition is required.
 
 A widget project's `package.json` normally includes the Mendix Pluggable Widgets
 Tools and their React peer dependencies.
+
+## Experimental native package managers
+
+Glendix can isolate Mendix Pluggable Widgets Tools from the project's package
+manager and JavaScript runtime:
+
+```toml
+[javascript]
+runtime = "bun"
+
+[tools.glendix]
+pm = "bun"
+compatibility = "experimental-native"
+```
+
+| `pm` | Gleam runtime | Dependency install |
+| --- | --- | --- |
+| `npm` | `node` | `npm install` |
+| `yarn` | `node` | `yarn install` |
+| `pnpm` | `node` | `pnpm install` |
+| `bun` | `bun` | `bun install` |
+| `deno` | `deno` | hoisted manual `deno install` with the required lifecycle scripts allowed |
+
+In this mode, Glendix invokes the installed Pluggable Widgets Tools CLI with the
+selected runtime and places temporary `node`, `npm`, and `npx` compatibility
+shims only on that child process's `PATH`. The shims satisfy the tool's hard
+Node/npm checks and route supported install, run, and exec calls back to the
+selected package manager. They are removed after the command; no global binary,
+lockfile, or package-manager setting is replaced. Interactive npm lockfile
+migration is disabled, so the selected manager's lockfile remains authoritative.
+
+This is an explicit experimental compatibility mode, not a complete npm
+emulator. npm and Bun projects must allow or trust the lifecycle scripts
+required by the Mendix toolchain, Yarn projects must use the `node-modules`
+linker, and pnpm projects must allow the same native build scripts. Deno
+projects must grant their Gleam commands the required permissions and allow
+those scripts during install. Invoke dependency modules with an explicit
+matching runtime, for example
+`gleam run -m glendix/build --runtime bun` or `--runtime deno`; use
+`--runtime node` for npm, Yarn, and pnpm.
 
 ## Basic widget
 
