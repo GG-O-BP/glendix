@@ -21,7 +21,7 @@ Glendix does not implement Marketplace access or browser automation.
 
 ```toml
 [dependencies]
-glendix = ">= 5.0.0 and < 6.0.0"
+glendix = ">= 5.1.0 and < 6.0.0"
 ```
 
 Add `mendraw` only when the project uses Mendix client values or installed MPK

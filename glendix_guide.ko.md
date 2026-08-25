@@ -19,7 +19,7 @@ Glendix는 Marketplace나 브라우저 자동화를 구현하지 않는다.
 
 ```toml
 [dependencies]
-glendix = ">= 5.0.0 and < 6.0.0"
+glendix = ">= 5.1.0 and < 6.0.0"
 ```
 
 Mendix 클라이언트 값이나 MPK 컴포넌트가 필요할 때만 `mendraw`를 추가하고,
