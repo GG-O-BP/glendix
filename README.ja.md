@@ -89,6 +89,25 @@ pub fn pie_chart(
 
 npm バインディングは Glendix 単体で動作します。
 
+## WebAssembly 依存関係
+
+Glendix は、ブラウザ toolchain が使用する次の標準的な静的 URL 形式の
+WebAssembly module を自動的に package 化します。
+
+```javascript
+new URL("./engine_bg.wasm", import.meta.url)
+```
+
+生成された Rollup 設定は、各 binary を決定的な content hash 名で widget の
+`assets/` directory にコピーします。AMD と ES module の出力には、それぞれ
+正しい Mendix runtime path を使用し、query string と fragment を保持します。
+同じ binary を繰り返し参照しても、asset は一度だけ生成されます。
+
+自動処理の対象は静的な相対 `.wasm` 参照だけです。参照先が存在しない場合は、
+module と解決済み path を含む error で build が失敗します。Glendix が生成する
+`rollup.config.mjs` を置き換える project は、custom 設定で同等の asset 処理を
+構成する必要があります。
+
 ## Marketplace ウィジェットとの組み合わせ
 
 ```toml

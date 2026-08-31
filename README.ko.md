@@ -93,6 +93,24 @@ pub fn pie_chart(
 npm 바인딩은 Glendix만으로 동작한다. `binding.element_`와
 `binding.void_element`도 제공한다.
 
+## WebAssembly 의존성
+
+Glendix는 브라우저 도구가 사용하는 다음 표준 정적 URL 형식의 WebAssembly
+모듈을 자동으로 패키징한다.
+
+```javascript
+new URL("./engine_bg.wasm", import.meta.url)
+```
+
+생성된 Rollup 설정은 각 바이너리를 결정적인 콘텐츠 해시 이름으로 위젯의
+`assets/` 디렉터리에 복사한다. AMD와 ES module 출력에는 각각 올바른 Mendix
+런타임 경로를 사용하며 query string과 fragment를 보존한다. 같은 바이너리를
+반복해서 참조해도 자산은 한 번만 생성된다.
+
+정적인 상대 `.wasm` 참조만 자동 처리한다. 참조 파일이 없으면 module과 해석된
+경로를 포함한 오류로 빌드가 실패한다. Glendix가 생성한 `rollup.config.mjs`를
+교체하는 프로젝트는 custom 설정에서 동등한 자산 처리를 구성해야 한다.
+
 ## Marketplace 위젯과 조합
 
 ```toml

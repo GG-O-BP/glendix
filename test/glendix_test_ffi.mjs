@@ -1,5 +1,11 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { toList } from "./gleam.mjs";
-import { render_rollup_config } from "./glendix/cmd_ffi.mjs";
+import {
+  create_wasm_asset_plugin,
+  render_rollup_config,
+} from "./glendix/cmd_ffi.mjs";
 
 function clone_list(list, clone) {
   return toList(list.toArray().map(clone));
@@ -60,6 +66,123 @@ export function test_component() {
 
 export function generated_rollup_config_source(withSecondaryWidget) {
   return render_rollup_config(withSecondaryWidget ? ["SecondaryWidget"] : []);
+}
+
+function wasmAst(source, specifiers) {
+  return {
+    type: "Program",
+    body: specifiers.map(specifier => {
+      const expression = `new URL(${JSON.stringify(specifier)}, import.meta.url)`;
+      const start = source.indexOf(expression);
+      if (start === -1) throw new Error(`Missing test expression: ${expression}`);
+      return {
+        type: "ExpressionStatement",
+        expression: {
+          type: "NewExpression",
+          start,
+          end: start + expression.length,
+          callee: { type: "Identifier", name: "URL" },
+          arguments: [
+            { type: "Literal", value: specifier },
+            {
+              type: "MemberExpression",
+              computed: false,
+              object: {
+                type: "MetaProperty",
+                meta: { name: "import" },
+                property: { name: "meta" },
+              },
+              property: { type: "Identifier", name: "url" },
+            },
+          ],
+        },
+      };
+    }),
+  };
+}
+
+function transformWasmFixture(outputFormat, specifiers) {
+  const directory = mkdtempSync(join(tmpdir(), "glendix-wasm-test-"));
+  try {
+    const modulePath = join(directory, "module.mjs");
+    writeFileSync(join(directory, "engine.wasm"), Buffer.from([0, 97, 115, 109]));
+    const source = specifiers
+      .map(specifier => `new URL(${JSON.stringify(specifier)}, import.meta.url)`)
+      .join(";\n");
+    const emitted = [];
+    const plugin = create_wasm_asset_plugin(
+      outputFormat,
+      `/workspace/dist/tmp/widgets/example/widget/Widget.${outputFormat === "es" ? "mjs" : "js"}`,
+    );
+    const result = plugin.transform.call(
+      {
+        parse: () => wasmAst(source, specifiers),
+        emitFile: asset => emitted.push(asset),
+        error: message => {
+          throw new Error(message);
+        },
+      },
+      source,
+      modulePath,
+    );
+    return `${emitted.length}\n${emitted[0]?.fileName ?? ""}\n${result?.code ?? ""}`;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+export function wasm_asset_es_transform_summary() {
+  return transformWasmFixture("es", ["engine.wasm", "engine.wasm?cache=1#ready"]);
+}
+
+export function wasm_asset_amd_transform_summary() {
+  return transformWasmFixture("amd", ["./engine.wasm"]);
+}
+
+export function wasm_asset_noop_contract() {
+  const plugin = create_wasm_asset_plugin(
+    "es",
+    "/workspace/dist/tmp/widgets/example/widget/Widget.mjs",
+  );
+  return plugin.transform.call(
+    {
+      parse: () => ({ type: "Program", body: [] }),
+      emitFile: () => {
+        throw new Error("No asset should be emitted");
+      },
+    },
+    "const value = 1;",
+    "/workspace/module.mjs",
+  ) === null;
+}
+
+export function wasm_asset_missing_error() {
+  const directory = mkdtempSync(join(tmpdir(), "glendix-wasm-test-"));
+  try {
+    const source = 'new URL("missing.wasm", import.meta.url)';
+    const plugin = create_wasm_asset_plugin(
+      "es",
+      "/workspace/dist/tmp/widgets/example/widget/Widget.mjs",
+    );
+    try {
+      plugin.transform.call(
+        {
+          parse: () => wasmAst(source, ["missing.wasm"]),
+          emitFile: () => undefined,
+          error: message => {
+            throw new Error(message);
+          },
+        },
+        source,
+        join(directory, "module.mjs"),
+      );
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 export function process_exit_code() {

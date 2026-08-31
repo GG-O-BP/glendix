@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -13,7 +14,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Some, None } from "../../gleam_stdlib/gleam/option.mjs";
 import { Ok, Error as GleamError } from "../gleam.mjs";
@@ -266,6 +267,186 @@ export function generate_bindings() {
   }
 }
 
+function splitWasmSpecifier(specifier) {
+  const suffixIndex = specifier.search(/[?#]/);
+  if (suffixIndex === -1) return { path: specifier, suffix: "" };
+  return {
+    path: specifier.slice(0, suffixIndex),
+    suffix: specifier.slice(suffixIndex),
+  };
+}
+
+function isRelativeWasmSpecifier(specifier) {
+  const { path } = splitWasmSpecifier(specifier);
+  return (
+    /\.wasm$/i.test(path) &&
+    path !== "" &&
+    !path.startsWith("/") &&
+    !path.startsWith("\\") &&
+    !/^[A-Za-z][A-Za-z\d+.-]*:/.test(path)
+  );
+}
+
+function staticStringValue(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+  if (
+    node?.type === "TemplateLiteral" &&
+    node.expressions?.length === 0 &&
+    node.quasis?.length === 1
+  ) {
+    return node.quasis[0].value.cooked;
+  }
+  return null;
+}
+
+function isImportMetaUrl(node) {
+  return (
+    node?.type === "MemberExpression" &&
+    node.computed === false &&
+    node.property?.type === "Identifier" &&
+    node.property.name === "url" &&
+    node.object?.type === "MetaProperty" &&
+    node.object.meta?.name === "import" &&
+    node.object.property?.name === "meta"
+  );
+}
+
+function collectWasmUrlExpressions(node, expressions) {
+  if (node === null || node === undefined || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const child of node) collectWasmUrlExpressions(child, expressions);
+    return;
+  }
+  if (
+    node.type === "NewExpression" &&
+    node.callee?.type === "Identifier" &&
+    node.callee.name === "URL" &&
+    node.arguments?.length === 2 &&
+    isImportMetaUrl(node.arguments[1])
+  ) {
+    const specifier = staticStringValue(node.arguments[0]);
+    if (specifier !== null && isRelativeWasmSpecifier(specifier)) {
+      expressions.push({ start: node.start, end: node.end, specifier });
+    }
+  }
+  for (const [key, child] of Object.entries(node)) {
+    if (key !== "parent") collectWasmUrlExpressions(child, expressions);
+  }
+}
+
+function wasmPublicDirectory(outputFormat, outputFile) {
+  if (outputFormat !== "amd" && outputFormat !== "es") return null;
+  const normalized = outputFile.replaceAll("\\", "/");
+  const match = normalized.match(
+    /(?:^|\/)dist\/tmp\/widgets\/(.+)\/[^/]+$/,
+  );
+  if (!match) return null;
+  const runtimeDirectory = outputFormat === "es" ? "dist" : "widgets";
+  return `/${runtimeDirectory}/${match[1]}/assets/`;
+}
+
+function decodedWasmPath(path) {
+  return decodeURIComponent(path);
+}
+
+function wasmAssetFileName(sourcePath, source) {
+  const extension = extname(sourcePath);
+  const name = basename(sourcePath, extension)
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/^-+|-+$/g, "") || "module";
+  const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
+  return `assets/${name}-${hash}${extension.toLowerCase()}`;
+}
+
+export function create_wasm_asset_plugin(outputFormat, outputFile) {
+  const publicDirectory = wasmPublicDirectory(outputFormat, outputFile);
+  if (publicDirectory === null) return null;
+  const emittedSources = new Map();
+  const emittedFiles = new Set();
+
+  return {
+    name: "glendix-wasm-assets",
+    transform(code, id) {
+      if (id.startsWith("\0")) return null;
+      if (!code.includes("import.meta.url") || !/\.wasm/i.test(code)) {
+        return null;
+      }
+      const expressions = [];
+      collectWasmUrlExpressions(this.parse(code), expressions);
+      if (expressions.length === 0) return null;
+
+      const modulePath = id.split(/[?#]/, 1)[0];
+      const replacements = [];
+      for (const expression of expressions) {
+        const { path, suffix } = splitWasmSpecifier(expression.specifier);
+        let decodedPath;
+        try {
+          decodedPath = decodedWasmPath(path);
+        } catch (error) {
+          this.error(
+            `Could not decode WebAssembly asset path "${path}" referenced by ` +
+              `"${id}": ${errorMessage(error)}`,
+          );
+        }
+        const sourcePath = resolve(dirname(modulePath), decodedPath);
+        let asset = emittedSources.get(sourcePath);
+        if (asset === undefined) {
+          let source;
+          try {
+            source = readFileSync(sourcePath);
+          } catch (error) {
+            this.error(
+              `Could not package WebAssembly asset "${expression.specifier}" ` +
+                `referenced by "${id}" at "${sourcePath}": ${errorMessage(error)}`,
+            );
+          }
+          const fileName = wasmAssetFileName(sourcePath, source);
+          if (!emittedFiles.has(fileName)) {
+            this.emitFile({ type: "asset", fileName, source });
+            emittedFiles.add(fileName);
+          }
+          asset = { fileName };
+          emittedSources.set(sourcePath, asset);
+        }
+        const runtimeUrl = publicDirectory + asset.fileName.slice("assets/".length) + suffix;
+        replacements.push({
+          start: expression.start,
+          end: expression.end,
+          value: `new URL(${JSON.stringify(runtimeUrl)}, document.baseURI)`,
+        });
+      }
+
+      let transformed = code;
+      replacements
+        .sort((left, right) => right.start - left.start)
+        .forEach(replacement => {
+          transformed =
+            transformed.slice(0, replacement.start) +
+            replacement.value +
+            transformed.slice(replacement.end);
+        });
+      return { code: transformed, map: null };
+    },
+  };
+}
+
+const wasmAssetRollupHelper = [
+  errorMessage,
+  splitWasmSpecifier,
+  isRelativeWasmSpecifier,
+  staticStringValue,
+  isImportMetaUrl,
+  collectWasmUrlExpressions,
+  wasmPublicDirectory,
+  decodedWasmPath,
+  wasmAssetFileName,
+  create_wasm_asset_plugin,
+]
+  .map(helper => helper.toString())
+  .join("\n\n") + "\n\n";
+
 const forceCloseRollupHelper =
   `function closeAfterBuild(configs) {\n` +
   `  if (configs.length === 0) return configs;\n` +
@@ -290,15 +471,20 @@ const forceCloseRollupHelper =
 
 export function render_rollup_config(secondaryWidgets) {
   if (secondaryWidgets.length > 0) {
-    return `import { readFileSync } from "node:fs";\n\n` +
+    return `import { createHash } from "node:crypto";\n` +
+      `import { readFileSync } from "node:fs";\n` +
+      `import { basename, dirname, extname, resolve } from "node:path";\n\n` +
+      wasmAssetRollupHelper +
       forceCloseRollupHelper +
       `export default args => {\n` +
       `  const configs = args.configDefaultConfig;\n` +
       `  const secondaryWidgets = ${JSON.stringify(secondaryWidgets)};\n\n` +
       `  function patchConfig(config) {\n` +
       `    const origExternal = config.external;\n` +
+      `    const wasmPlugin = create_wasm_asset_plugin(config.output?.format, config.output?.file ?? "");\n` +
       `    return {\n` +
       `      ...config,\n` +
+      `      plugins: wasmPlugin ? [wasmPlugin, ...(config.plugins ?? [])] : config.plugins,\n` +
       `      external(id) {\n` +
       `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
       `        if (typeof origExternal === "function") return origExternal(id);\n` +
@@ -336,13 +522,19 @@ export function render_rollup_config(secondaryWidgets) {
       `};\n`;
   }
 
-  return forceCloseRollupHelper +
+  return `import { createHash } from "node:crypto";\n` +
+    `import { readFileSync } from "node:fs";\n` +
+    `import { basename, dirname, extname, resolve } from "node:path";\n\n` +
+    wasmAssetRollupHelper +
+    forceCloseRollupHelper +
     `export default args => {\n` +
     `  const configs = args.configDefaultConfig;\n` +
     `  const result = configs.map(config => {\n` +
     `    const origExternal = config.external;\n` +
+    `    const wasmPlugin = create_wasm_asset_plugin(config.output?.format, config.output?.file ?? "");\n` +
     `    return {\n` +
     `      ...config,\n` +
+    `      plugins: wasmPlugin ? [wasmPlugin, ...(config.plugins ?? [])] : config.plugins,\n` +
     `      external(id) {\n` +
     `        if (/^react(-dom)?($|\\/)/.test(id)) return true;\n` +
     `        if (typeof origExternal === "function") return origExternal(id);\n` +

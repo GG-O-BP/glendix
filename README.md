@@ -149,6 +149,26 @@ pub fn pie_chart(
 `binding.element_` creates an element with children only, and
 `binding.void_element` creates one without children.
 
+## WebAssembly dependencies
+
+Glendix automatically packages browser WebAssembly modules referenced with the
+standard static URL form used by browser toolchains:
+
+```javascript
+new URL("./engine_bg.wasm", import.meta.url)
+```
+
+The generated Rollup configuration copies each binary into the widget
+`assets/` directory with a deterministic content hash. It rewrites the runtime
+URL to the correct Mendix route for both AMD and ES module outputs, so the same
+MPK works in classic and modern web clients. Query strings and fragments are
+preserved, and repeated references to one binary emit a single asset.
+
+Only static relative `.wasm` references can be packaged automatically. A
+missing referenced file fails the build with its module and resolved path.
+Projects that replace Glendix's generated `rollup.config.mjs` must compose
+equivalent asset handling in their custom configuration.
+
 ## Installed Marketplace widgets
 
 Package acquisition is a separate step owned by mxpak:
