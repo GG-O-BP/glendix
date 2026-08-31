@@ -84,6 +84,58 @@ pub fn cmd_generated_rollup_config_force_closes_test() -> Nil {
   })
 }
 
+/// Verifies generated Rollup configurations install WebAssembly asset support.
+pub fn cmd_generated_rollup_config_includes_wasm_assets_test() -> Nil {
+  [False, True]
+  |> list.each(fn(with_secondary_widget) {
+    let source = generated_rollup_config_source(with_secondary_widget)
+    source
+    |> string.contains("glendix-wasm-assets")
+    |> should.be_true
+    source
+    |> string.contains("create_wasm_asset_plugin")
+    |> should.be_true
+  })
+}
+
+/// Verifies ES bundles emit one asset and preserve URL suffixes.
+pub fn cmd_wasm_asset_es_transform_contract_test() -> Nil {
+  let summary = wasm_asset_es_transform_summary()
+  summary
+  |> string.starts_with("1\nassets/engine-")
+  |> should.be_true
+  summary
+  |> string.contains("/dist/example/widget/assets/engine-")
+  |> should.be_true
+  summary
+  |> string.contains("?cache=1#ready")
+  |> should.be_true
+}
+
+/// Verifies AMD bundles use the Mendix widget asset route.
+pub fn cmd_wasm_asset_amd_transform_contract_test() -> Nil {
+  wasm_asset_amd_transform_summary()
+  |> string.contains("/widgets/example/widget/assets/engine-")
+  |> should.be_true
+}
+
+/// Verifies modules without static WebAssembly references remain unchanged.
+pub fn cmd_wasm_asset_noop_contract_test() -> Nil {
+  wasm_asset_noop_contract()
+  |> should.be_true
+}
+
+/// Verifies missing WebAssembly files fail with source and module context.
+pub fn cmd_wasm_asset_missing_file_contract_test() -> Nil {
+  let message = wasm_asset_missing_error()
+  message
+  |> string.contains("missing.wasm")
+  |> should.be_true
+  message
+  |> string.contains("module.mjs")
+  |> should.be_true
+}
+
 /// Verifies command reporting marks the JavaScript process as failed.
 pub fn cmd_report_marks_process_failure_test() -> Nil {
   cmd.report(Error(cmd.CommandFailed("test operation", "test reason")))
@@ -204,6 +256,18 @@ fn test_component() -> binding.JsComponent
 
 @external(javascript, "./glendix_test_ffi.mjs", "generated_rollup_config_source")
 fn generated_rollup_config_source(with_secondary_widget: Bool) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "wasm_asset_es_transform_summary")
+fn wasm_asset_es_transform_summary() -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "wasm_asset_amd_transform_summary")
+fn wasm_asset_amd_transform_summary() -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "wasm_asset_noop_contract")
+fn wasm_asset_noop_contract() -> Bool
+
+@external(javascript, "./glendix_test_ffi.mjs", "wasm_asset_missing_error")
+fn wasm_asset_missing_error() -> String
 
 @external(javascript, "./glendix_test_ffi.mjs", "process_exit_code")
 fn process_exit_code() -> Int
