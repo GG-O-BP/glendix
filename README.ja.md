@@ -20,7 +20,7 @@ Glendix は Marketplace やブラウザ自動化を実装しません。
 
 ```toml
 [dependencies]
-glendix = ">= 5.1.0 and < 6.0.0"
+glendix = ">= 6.0.0 and < 7.0.0"
 ```
 
 Mendix クライアント値または MPK コンポーネントが必要な場合だけ `mendraw`、
@@ -218,6 +218,15 @@ JavaScript 設定、最終 MPK ビルドを担当します。
 | `gleam run -m glendix/lint` | lint |
 | `gleam run -m glendix/lint_fix` | lint 修正 |
 | `gleam run -m glendix/release` | release ビルド |
+
+## 6.0.0 の破壊的変更
+
+`glendix/js/array` は変換を `gleam/javascript/array` に委譲するようになり、手書き
+の JavaScript アダプターを同梱しなくなりました。`from_list` と `to_list` は関数
+名・ラベル・要素順序の挙動を維持するため、一般的な
+`list |> array.from_list |> array.to_list` の利用方法は変わりません。従来の
+opaque 型 `glendix/js/array.JsArray(element)` は削除されたので、値の型は
+`gleam/javascript/array.Array(element)` で注釈してください。
 
 ## 開発
 

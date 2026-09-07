@@ -1,22 +1,20 @@
-//// Converts between Gleam lists and JavaScript arrays at the FFI boundary.
+//// Converts between Gleam lists and JavaScript arrays.
+////
+//// The conversions delegate to `gleam/javascript/array`, so the standard
+//// `Array(element)` type is the JavaScript array representation and Glendix no
+//// longer owns equivalent runtime code. The former opaque `JsArray(element)`
+//// type is removed; annotate values with `gleam/javascript/array.Array`
+//// instead. See the repository README for the migration note.
 ////
 
-/// Represents a JavaScript array whose elements have a known Gleam type.
-pub type JsArray(element)
+import gleam/javascript/array as javascript_array
 
-/// Converts a Gleam list into a JavaScript array.
-pub fn from_list(list list: List(element)) -> JsArray(element) {
-  list_to_array(list)
+/// Converts a Gleam list into a JavaScript array, preserving element order.
+pub fn from_list(list list: List(element)) -> javascript_array.Array(element) {
+  javascript_array.from_list(list)
 }
 
-/// Converts a JavaScript array into a Gleam list.
-pub fn to_list(array array: JsArray(element)) -> List(element) {
-  array_to_list(array)
+/// Converts a JavaScript array into a Gleam list, preserving element order.
+pub fn to_list(array array: javascript_array.Array(element)) -> List(element) {
+  javascript_array.to_list(array)
 }
-
-// -- FFI --
-@external(javascript, "./array_ffi.mjs", "list_to_array")
-fn list_to_array(list: List(element)) -> JsArray(element)
-
-@external(javascript, "./array_ffi.mjs", "array_to_list")
-fn array_to_list(array: JsArray(element)) -> List(element)

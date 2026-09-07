@@ -1,5 +1,5 @@
 name = "glendix"
-version = "5.1.0"
+version = "6.0.0"
 gleam = ">= 1.17.0"
 target = "javascript"
 description = "Mendix widget build tooling with external React bindings and a Lustre bridge"
