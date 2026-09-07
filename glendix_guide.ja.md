@@ -123,6 +123,17 @@ pub fn themed_component(
 `object.from_entries` は通常の文字列キーの順序を保持し、重複キーには最後の値を
 採用し、特殊なキーもデータとして安全に格納します。
 
+## ブラウザーファイル capability
+
+`glendix/js/file` は Gossamer ベースの宣言的ダウンロードリソースと、
+Plinth ベースのモダンなファイル選択を提供します。対応状況、キャンセル、
+メタデータ検証、ハンドルを開く処理、バイト読み取りの失敗をそれぞれ型で
+返します。隠し入力のフォールバック、アプリケーション固有の解析やファイル名
+方針は意図的に含みません。
+
+API、検証順序、フォールバック方針、ecosystem/残存 FFI の対応表は
+[browser file capability contract](BROWSER_FILE_CAPABILITIES.md) を参照してください。
+
 ## Marketplace ウィジェットとの組み合わせ
 
 ```toml

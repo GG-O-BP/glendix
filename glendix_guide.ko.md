@@ -122,6 +122,16 @@ pub fn themed_component(
 `object.from_entries`는 일반 문자열 키 순서를 보존하고, 중복 키에는 마지막 값을
 적용하며, 특수 키도 데이터로 안전하게 저장한다.
 
+## 브라우저 파일 capability
+
+`glendix/js/file`은 Gossamer 기반 선언형 다운로드 리소스와 Plinth 기반 최신
+파일 선택을 제공한다. 지원 여부, 취소, 메타데이터 검증, 핸들 열기, 바이트 읽기
+실패를 각각 타입으로 반환한다. 숨겨진 입력 폴백과 애플리케이션별 파싱 및 파일명
+정책은 의도적으로 포함하지 않는다.
+
+API, 검증 순서, 폴백 정책 및 생태계/잔여 FFI 현황은
+[브라우저 파일 capability 계약](BROWSER_FILE_CAPABILITIES.md)을 참고한다.
+
 ## Marketplace 위젯과 조합
 
 ```toml
