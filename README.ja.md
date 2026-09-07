@@ -166,6 +166,38 @@ pub fn pie_chart(
 
 npm バインディングは Glendix 単体で動作します。
 
+非同期の準備が必要な module は拡張 table 形式で設定します。
+
+```toml
+[tools.glendix.bindings."@ironcalc/workbook"]
+exports = ["Workbook"]
+initializer = "init"
+retry = "on-failure"
+```
+
+`initializer` は引数なしで呼び出され、Promise を返す export 名です。`retry` は
+既定値の `"never"`（明示的に reset するまで失敗を cache）または
+`"on-failure"`（失敗結果を state に記録した後、次の呼び出しで再試行）です。
+非 React API だけを使う module は `exports` を省略できます。従来の文字列・配列
+形式は初期化不要の module としてそのまま動作します。
+
+`binding.initialization` で caller-owned state を作り、`binding.initialize` が返す
+`ModuleInitialization` を application model に保存します。`Initializing` 中の
+同時呼び出しは同じ Promise を共有します。完了結果を
+`binding.settle_initialization` に渡した後、`binding.initialized_module` から同じ
+ready module を rendering と非 React API の両方で利用できます。Lustre は
+`binding.initialization_effect`、React Suspense は同じ Promise に
+`binding.use_initialization` を利用できます。`binding.reset_initialization` は
+失敗済みまたは ready の状態を明示的に reset します。
+
+TOML の package/export 名は Glendix 自体の compile 後に読み込まれるため、installer
+は生成 FFI 境界を 1 つ保持します。この境界は決定的な static named import、metadata
+参照、initializer の直接呼び出しだけを行います。Promise の生成、one-flight 共有、
+結果変換、retry state、完了 dispatch は `gleam/javascript/promise` を使う Gleam
+コードが担当します。dynamic `import()` や生成 Promise cache は使わないため、
+Rollup と WebAssembly asset 検出の決定性も維持されます。
+
+
 ## ブラウザ環境とオブジェクト prop
 
 `glendix/js/environment` は `window.matchMedia` を型付き境界の内側に隠し、ウィ

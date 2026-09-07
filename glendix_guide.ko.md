@@ -83,6 +83,29 @@ pub fn pie_chart(
 npm 바인딩은 Glendix만으로 동작한다. `binding.element_`와
 `binding.void_element`도 제공한다.
 
+비동기 준비가 필요한 모듈은 확장 형식으로 설정한다.
+
+```toml
+[tools.glendix.bindings."@ironcalc/workbook"]
+exports = ["Workbook"]
+initializer = "init"
+retry = "on-failure"
+```
+
+initializer는 인자 없이 호출하며 Promise를 반환해야 한다. `retry` 기본값
+`"never"`는 reset 전까지 실패를 캐시하고, `"on-failure"`는 실패 결과를 반영한 뒤
+다음 시도를 허용한다. `binding.initialization`과 `binding.initialize`로 만든
+`ModuleInitialization`을 model에 저장하면 동시 호출이 같은 Promise를 공유한다.
+완료 결과는 `binding.settle_initialization`으로 반영하고,
+`binding.initialized_module`을 렌더링과 non-React API가 함께 사용한다. Lustre는
+`binding.initialization_effect`, React Suspense는 `binding.use_initialization`을
+사용한다.
+
+생성 코드는 TOML로 선택한 export의 정적 import와 직접 호출만 담당한다. Promise와
+retry orchestration은 `gleam/javascript/promise` 기반 Gleam 코드에 있으며 동적
+`import()`나 생성된 Promise cache를 사용하지 않는다.
+
+
 ## 브라우저 환경과 객체 prop
 
 `glendix/js/environment`를 사용하면 `window.matchMedia`를 노출하지 않고
