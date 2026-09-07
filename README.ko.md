@@ -208,6 +208,20 @@ pub fn themed_component(
 `object.from_entries`에만 적용된다. Reflection 대입은 일반 JavaScript setter 의미를
 유지하므로 신뢰할 수 없는 속성 이름을 `reflect.set`에 전달하면 안 된다.
 
+## 브라우저 파일 다운로드와 선택
+
+`glendix/js/file`은 `gossamer/blob`으로 선언형 다운로드 리소스를 만들고
+`plinth/browser/file_system` 및 `plinth/browser/file`로 최신 브라우저 파일
+선택을 읽는다. 다운로드는 일반 Lustre/Redraw 앵커로 렌더링하고 컴포넌트가
+교체되거나 해제될 때 `file.release`를 호출한다.
+
+`showOpenFilePicker`가 없으면 `PickerUnsupported`를 반환한다. 더 넓은 브라우저
+지원이 필요하면 안정적으로 중복 제거된 `file.accepted_types`를 사용해 보이는
+파일 입력을 렌더링할 수 있다. Glendix는 숨겨진 입력이나 앵커를 생성해서
+클릭하는 FFI를 추가하지 않는다. 전체 API, 오류, 폴백 정책 및 생태계 사용
+현황은 [브라우저 파일 capability 계약](BROWSER_FILE_CAPABILITIES.md)을
+참고한다.
+
 ## WebAssembly 의존성
 
 Glendix는 브라우저 도구가 사용하는 다음 표준 정적 URL 형식의 WebAssembly

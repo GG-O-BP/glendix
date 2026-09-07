@@ -176,6 +176,17 @@ pub fn themed_component(
 `object.from_entries` preserves ordinary string-key order, keeps the last value
 for duplicate keys, and safely stores special keys as data.
 
+## Browser file capabilities
+
+Use `glendix/js/file` for Gossamer-backed declarative download resources and
+Plinth-backed modern file selection. It returns typed capability, cancellation,
+metadata-validation, handle-open, and byte-read errors. Glendix deliberately
+does not add a hidden-input fallback or application-specific parsing and
+filename policy.
+
+See [the browser file capability contract](BROWSER_FILE_CAPABILITIES.md) for
+the API, validation order, fallback policy, and ecosystem/residual-FFI matrix.
+
 ## Installed Marketplace widgets
 
 Package acquisition is a separate step owned by mxpak:

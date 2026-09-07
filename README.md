@@ -271,6 +271,27 @@ property or method exists. The `__proto__`-as-data guarantee applies to
 `object.from_entries`; reflective assignment retains ordinary JavaScript setter
 semantics, so never pass untrusted property names to `reflect.set`.
 
+## Browser file downloads and selection
+
+`glendix/js/file` creates declarative download resources through
+`gossamer/blob` and reads a modern browser file selection through
+`plinth/browser/file_system` and `plinth/browser/file`.
+
+Render downloads as normal Lustre or Redraw anchors with the resource's URL and
+filename, then call `file.release` when the anchor is replaced or disposed.
+Glendix does not create or click a hidden download anchor.
+
+The picker reports `PickerUnsupported` when `showOpenFilePicker` is unavailable.
+Applications that need broader browser support can render a visible file input
+using the stable, de-duplicated `file.accepted_types` list; Glendix does not add
+an imperative hidden-input fallback. Empty files, maximum-size overflow, type
+mismatch, cancellation, handle failures, and read failures have distinct typed
+errors. Application parsing and filename policy remain outside Glendix.
+
+See [the browser file capability contract](BROWSER_FILE_CAPABILITIES.md) for
+the API examples, validation order, fallback policy, and ecosystem/residual-FFI
+matrix.
+
 ## WebAssembly dependencies
 
 Glendix automatically packages browser WebAssembly modules referenced with the

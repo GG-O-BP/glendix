@@ -216,6 +216,20 @@ unsafe/dynamic な境界です。`__proto__` を通常のデータとして保�
 JavaScript setter の意味を維持するため、信頼できないプロパティ名を
 `reflect.set` に渡してはいけません。
 
+## ブラウザーファイルのダウンロードと選択
+
+`glendix/js/file` は `gossamer/blob` で宣言的なダウンロードリソースを
+作成し、`plinth/browser/file_system` と `plinth/browser/file` でモダンな
+ブラウザーファイル選択を読み取ります。通常の Lustre/Redraw アンカーとして
+描画し、置換または破棄時に `file.release` を呼び出します。
+
+`showOpenFilePicker` がない場合は `PickerUnsupported` を返します。より広い
+ブラウザー対応が必要なアプリケーションは、安定した重複除去済みの
+`file.accepted_types` を使って可視のファイル入力を描画できます。Glendix は
+隠し入力や隠しアンカーを生成してクリックする FFI を追加しません。API、
+エラー、フォールバック方針、ecosystem 対応表は
+[browser file capability contract](BROWSER_FILE_CAPABILITIES.md) を参照してください。
+
 ## WebAssembly 依存関係
 
 Glendix は、ブラウザ toolchain が使用する次の標準的な静的 URL 形式の
