@@ -89,6 +89,47 @@ pub fn pie_chart(
 
 npm バインディングは Glendix 単体で動作します。
 
+## ブラウザ環境とオブジェクト prop
+
+`glendix/js/environment` は `window.matchMedia` を型付き境界の内側に隠し、ウィ
+ジェットがアプリケーションローカルの FFI から直接呼び出さずにブラウザのカラー
+スキーム設定を読み取れるようにします。`color_scheme` は OS の設定を `Light`、
+`Dark`、`System` として返し、`resolved_color_scheme` は実際に適用される値を
+`ResolvedLight`、`ResolvedDark`、または `matchMedia` を照会できない場合の
+`ResolutionUnavailable` として解決します。設定変更の動的な購読
+(`MediaQueryList` の `change` イベント) は意図的に対象外です。props やリビジョン
+による再描画のタイミングで再照会してください。
+
+`glendix/js/object` は順序付きの型付きエントリから素の JavaScript オブジェクトを
+構築し、エントリ順を保持し、キーが重複した場合は最後の値を採用します。生成した
+オブジェクトは Redraw の属性を通して、アプリケーションローカルの React FFI なし
+で外部 React コンポーネントへ 1 つの prop として渡せます。
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
 ## WebAssembly 依存関係
 
 Glendix は、ブラウザ toolchain が使用する次の標準的な静的 URL 形式の

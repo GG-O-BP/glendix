@@ -12,7 +12,9 @@ import glendix/define/file_boundary
 import glendix/define/model
 import glendix/define/ui
 import glendix/js/array
+import glendix/js/environment
 import glendix/js/json as javascript_json
+import glendix/js/object
 import glendix/lustre
 import lustre/attribute
 import lustre/element
@@ -244,6 +246,98 @@ pub fn lustre_foreign_constructor_render_contract_test() -> Nil {
   |> should.equal("section#foreign-root|h2|Foreign Lustre")
 }
 
+/// Verifies a dark preference maps to the dark and resolved-dark schemes.
+pub fn environment_dark_preference_is_dark_test() -> Nil {
+  stub_prefers_dark()
+  environment.color_scheme()
+  |> should.equal(environment.Dark)
+  environment.resolved_color_scheme()
+  |> should.equal(environment.ResolvedDark)
+}
+
+/// Verifies a light preference maps to the light and resolved-light schemes.
+pub fn environment_light_preference_is_light_test() -> Nil {
+  stub_prefers_light()
+  environment.color_scheme()
+  |> should.equal(environment.Light)
+  environment.resolved_color_scheme()
+  |> should.equal(environment.ResolvedLight)
+}
+
+/// Verifies no explicit preference reports System and resolves to light.
+pub fn environment_no_preference_resolves_to_light_test() -> Nil {
+  stub_prefers_none()
+  environment.color_scheme()
+  |> should.equal(environment.System)
+  environment.resolved_color_scheme()
+  |> should.equal(environment.ResolvedLight)
+}
+
+/// Verifies an unavailable matchMedia reports System and stays unresolved.
+pub fn environment_unavailable_match_media_is_unresolved_test() -> Nil {
+  clear_match_media()
+  environment.color_scheme()
+  |> should.equal(environment.System)
+  environment.resolved_color_scheme()
+  |> should.equal(environment.ResolutionUnavailable)
+}
+
+/// Verifies object construction preserves entry order.
+pub fn object_from_entries_preserves_entry_order_test() -> Nil {
+  object.from_entries([
+    #("theme", object.string("dark")),
+    #("locale", object.string("en")),
+    #("density", object.int(2)),
+  ])
+  |> object_json
+  |> should.equal("{\"theme\":\"dark\",\"locale\":\"en\",\"density\":2}")
+}
+
+/// Verifies an empty entry list safely builds an empty object.
+pub fn object_from_entries_without_entries_is_empty_object_test() -> Nil {
+  object.from_entries([])
+  |> object_json
+  |> should.equal("{}")
+}
+
+/// Verifies a duplicate key keeps the last supplied value.
+pub fn object_from_entries_duplicate_key_keeps_last_value_test() -> Nil {
+  object.from_entries([
+    #("theme", object.string("light")),
+    #("theme", object.string("dark")),
+  ])
+  |> object_json
+  |> should.equal("{\"theme\":\"dark\"}")
+}
+
+/// Verifies a prototype-looking key remains ordinary own object data.
+pub fn object_from_entries_proto_key_is_safe_data_test() -> Nil {
+  object.from_entries([#("__proto__", object.string("safe"))])
+  |> object_json
+  |> should.equal("{\"__proto__\":\"safe\"}")
+}
+
+/// Verifies an object passes through Glendix bindings as one intact prop.
+pub fn binding_object_prop_preserves_object_test() -> Nil {
+  let configuration =
+    object.from_entries([
+      #("theme", object.string("dark")),
+      #("locale", object.string("en")),
+    ])
+  let rendered =
+    binding.element(
+      test_component(),
+      [redraw_attribute.attribute("config", object.from_object(configuration))],
+      [],
+    )
+  rendered
+  |> element_prop_is("config", configuration)
+  |> should.be_true
+  rendered
+  |> element_prop_json("config")
+  |> should.equal("{\"theme\":\"dark\",\"locale\":\"en\"}")
+}
+
 // -- FFI --
 @external(javascript, "./glendix_test_ffi.mjs", "clone_lustre_tree")
 fn clone_lustre_tree(tree: element.Element(message)) -> element.Element(message)
@@ -274,3 +368,28 @@ fn process_exit_code() -> Int
 
 @external(javascript, "./glendix_test_ffi.mjs", "reset_process_exit_code")
 fn reset_process_exit_code() -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "stub_prefers_dark")
+fn stub_prefers_dark() -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "stub_prefers_light")
+fn stub_prefers_light() -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "stub_prefers_none")
+fn stub_prefers_none() -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "clear_match_media")
+fn clear_match_media() -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "object_json")
+fn object_json(handle handle: object.JsObject) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "element_prop_json")
+fn element_prop_json(element element: redraw.Element, key key: String) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "element_prop_is")
+fn element_prop_is(
+  element element: redraw.Element,
+  key key: String,
+  expected expected: object.JsObject,
+) -> Bool

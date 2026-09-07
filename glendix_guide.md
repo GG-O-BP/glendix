@@ -109,6 +109,46 @@ pub fn pie_chart(
 `binding.element_` creates an element with children only, and
 `binding.void_element` creates one without children.
 
+## Browser environment and object props
+
+Use `glendix/js/environment` to read `prefers-color-scheme` without exposing
+`window.matchMedia`. `color_scheme` returns `Light`, `Dark`, or `System`;
+`resolved_color_scheme` returns `ResolvedLight`, `ResolvedDark`, or
+`ResolutionUnavailable`. Dynamic preference-change subscriptions are
+intentionally out of scope, so re-query during an application-driven
+re-render.
+
+Build one plain JavaScript configuration object from ordered typed entries and
+pass it through a Redraw attribute to an external component:
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
+`object.from_entries` preserves ordinary string-key order, keeps the last value
+for duplicate keys, and safely stores special keys as data.
+
 ## Installed Marketplace widgets
 
 Package acquisition is a separate step owned by mxpak:
