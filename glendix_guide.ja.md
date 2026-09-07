@@ -84,6 +84,29 @@ pub fn pie_chart(
 
 npm バインディングは Glendix 単体で動作します。
 
+非同期準備が必要な module は拡張形式で設定します。
+
+```toml
+[tools.glendix.bindings."@ironcalc/workbook"]
+exports = ["Workbook"]
+initializer = "init"
+retry = "on-failure"
+```
+
+initializer は引数なしで呼び出され、Promise を返す必要があります。`retry` の既定値
+`"never"` は reset まで失敗を cache し、`"on-failure"` は失敗結果の記録後に次の
+試行を許可します。`binding.initialization` と `binding.initialize` が返す
+`ModuleInitialization` を model に保存すると、同時呼び出しは同じ Promise を共有
+します。完了は `binding.settle_initialization` で記録し、
+`binding.initialized_module` を rendering と非 React API で共有します。Lustre は
+`binding.initialization_effect`、React Suspense は `binding.use_initialization` を
+利用できます。
+
+生成コードは TOML で選択した export の static import と直接呼び出しだけを担当し、
+Promise と retry の orchestration は `gleam/javascript/promise` ベースの Gleam
+コードにあります。dynamic `import()` や生成 Promise cache は使いません。
+
+
 ## ブラウザ環境とオブジェクト prop
 
 `glendix/js/environment` を使うと、`window.matchMedia` を公開せずに

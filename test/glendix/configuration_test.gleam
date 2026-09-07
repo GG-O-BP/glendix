@@ -94,6 +94,66 @@ pub fn bindings_are_parsed_and_ordered_deterministically_test() -> Nil {
   ])
 }
 
+/// Verifies extended bindings preserve initialization and retry configuration.
+pub fn extended_bindings_parse_initialization_policy_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings]\n"
+      <> "legacy = \"LegacyComponent\"\n"
+      <> "\"@ironcalc/workbook\" = { exports = [\"Workbook\"], initializer = \"init\", retry = \"on-failure\" }\n"
+      <> "\"api-only\" = { initializer = \"initialize\" }\n",
+    )
+    |> should.be_ok
+
+  configuration.binding_configurations(parsed)
+  |> should.be_ok
+  |> should.equal([
+    configuration.BindingConfiguration(
+      "@ironcalc/workbook",
+      ["Workbook"],
+      configuration.Initialize("init", configuration.RetryFailure),
+    ),
+    configuration.BindingConfiguration(
+      "api-only",
+      [],
+      configuration.Initialize("initialize", configuration.CacheFailure),
+    ),
+    configuration.BindingConfiguration(
+      "legacy",
+      ["LegacyComponent"],
+      configuration.NoInitialization,
+    ),
+  ])
+  configuration.bindings(parsed)
+  |> should.be_ok
+  |> should.equal([
+    #("@ironcalc/workbook", ["Workbook"]),
+    #("api-only", []),
+    #("legacy", ["LegacyComponent"]),
+  ])
+}
+
+/// Verifies nested tables support a scalar export and default failure caching.
+pub fn nested_binding_table_is_parsed_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings.chart]\n"
+      <> "exports = \"Chart\"\n"
+      <> "initializer = \"prepare\"\n",
+    )
+    |> should.be_ok
+
+  configuration.binding_configurations(parsed)
+  |> should.be_ok
+  |> should.equal([
+    configuration.BindingConfiguration(
+      "chart",
+      ["Chart"],
+      configuration.Initialize("prepare", configuration.CacheFailure),
+    ),
+  ])
+}
+
 /// Verifies malformed TOML is rejected instead of being partially interpreted.
 pub fn malformed_toml_returns_parse_error_test() -> Nil {
   case configuration.parse("[tools.glendix\npm = \"bun\"\n") {
@@ -135,6 +195,100 @@ pub fn binding_component_with_wrong_type_returns_schema_error_test() -> Nil {
       expected |> should.equal("String")
       got |> should.equal("Int")
     }
+    Ok(_) -> should.fail()
+    Error(_) -> should.fail()
+  }
+}
+
+/// Verifies extended export arrays retain indexed schema error paths.
+pub fn extended_binding_export_with_wrong_type_returns_schema_error_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings]\n"
+      <> "components = { exports = [\"Button\", false], initializer = \"init\" }\n",
+    )
+    |> should.be_ok
+
+  case configuration.binding_configurations(parsed) {
+    Error(configuration.ConfiguredValueHasWrongType(key, expected, got)) -> {
+      key
+      |> should.equal([
+        "tools",
+        "glendix",
+        "bindings",
+        "components",
+        "exports",
+        "1",
+      ])
+      expected |> should.equal("String")
+      got |> should.equal("Bool")
+    }
+    Ok(_) -> should.fail()
+    Error(_) -> should.fail()
+  }
+}
+
+/// Verifies unsupported retry modes fail with the exact configured key.
+pub fn unsupported_binding_retry_policy_returns_schema_error_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings]\n"
+      <> "components = { initializer = \"init\", retry = \"always\" }\n",
+    )
+    |> should.be_ok
+
+  case configuration.binding_configurations(parsed) {
+    Error(configuration.ConfiguredValueHasWrongType(key, expected, got)) -> {
+      key
+      |> should.equal([
+        "tools",
+        "glendix",
+        "bindings",
+        "components",
+        "retry",
+      ])
+      expected |> should.equal("\"never\" or \"on-failure\"")
+      got |> should.equal("String(\"always\")")
+    }
+    Ok(_) -> should.fail()
+    Error(_) -> should.fail()
+  }
+}
+
+/// Verifies retry configuration cannot be silently ignored without an initializer.
+pub fn retry_without_initializer_returns_schema_error_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings]\n"
+      <> "components = { exports = [\"Button\"], retry = \"on-failure\" }\n",
+    )
+    |> should.be_ok
+
+  case configuration.binding_configurations(parsed) {
+    Error(_) -> Nil
+    Ok(_) -> should.fail()
+  }
+}
+
+/// Verifies misspelled extended keys are rejected instead of ignored.
+pub fn unknown_extended_binding_key_returns_schema_error_test() -> Nil {
+  let parsed =
+    configuration.parse(
+      "[tools.glendix.bindings]\n"
+      <> "components = { exports = [\"Button\"], initialise = \"init\" }\n",
+    )
+    |> should.be_ok
+
+  case configuration.binding_configurations(parsed) {
+    Error(configuration.ConfiguredValueHasWrongType(key, _, _)) ->
+      key
+      |> should.equal([
+        "tools",
+        "glendix",
+        "bindings",
+        "components",
+        "initialise",
+      ])
     Ok(_) -> should.fail()
     Error(_) -> should.fail()
   }

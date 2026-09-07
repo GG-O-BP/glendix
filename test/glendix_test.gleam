@@ -1,9 +1,11 @@
 //// Exercises Glendix pure domain logic and JavaScript FFI contracts.
 ////
 
+import gleam/dynamic
 import gleam/javascript/array as javascript_array
 import gleam/javascript/promise
 import gleam/list
+import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -18,6 +20,7 @@ import glendix/js/object
 import glendix/js/promise as glendix_promise
 import glendix/lustre
 import lustre/attribute
+import lustre/effect
 import lustre/element
 import lustre/element/html
 import redraw
@@ -167,6 +170,275 @@ pub fn binding_element_contract_test() -> Nil {
   binding.element(test_component(), [redraw_attribute.id("binding-test")], [])
   |> rendered_tree_summary
   |> should.equal("section#binding-test")
+}
+
+/// Verifies generated lifecycle bindings use deterministic static imports.
+pub fn binding_generator_uses_static_initializer_imports_test() -> Nil {
+  let source =
+    cmd.render_binding_source(bindings: [
+      #("@ironcalc/workbook", ["Workbook", "Workbook"], "init", "on-failure"),
+      #("component-only", ["Chart"], "", "never"),
+      #("api-only", [], "initialize", "never"),
+    ])
+
+  source
+  |> string.contains("from \"@ironcalc/workbook\";")
+  |> should.be_true
+  source
+  |> string.contains("run: () => __glendix_module_0_export_1()")
+  |> should.be_true
+  source
+  |> string.contains("\"Workbook\": __glendix_module_0_export_0")
+  |> should.be_true
+  source
+  |> string.contains("import(")
+  |> should.be_false
+  source
+  |> string.contains("\"api-only\": {")
+  |> should.be_true
+}
+
+/// Verifies configurations with no usable exports preserve no-output behavior.
+pub fn binding_generator_empty_configuration_has_no_output_test() -> Nil {
+  cmd.render_binding_source(bindings: [
+    #("empty", [], "", "never"),
+  ])
+  |> should.equal("")
+}
+
+/// Verifies modules without an initializer are immediately reusable.
+pub fn binding_module_without_initializer_is_ready_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("none", "never")
+  let initialization = binding.initialization(module)
+  binding.initialization_status(initialization)
+  |> should.equal(binding.Ready)
+  binding.initialized_module(initialization)
+  |> should.equal(option.Some(module))
+  let #(unchanged, attempt) = binding.initialize(initialization)
+  binding.initialization_status(unchanged)
+  |> should.equal(binding.Ready)
+  attempt
+  |> promise.map(fn(outcome) { should.equal(outcome, Ok(Nil)) })
+}
+
+/// Verifies successful initialization unlocks rendering and non-React reuse.
+pub fn binding_initialization_success_reuses_ready_module_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("success", "never")
+  let initialization = binding.initialization(module)
+  let #(loading, attempt) = binding.initialize(initialization)
+  binding.initialization_status(loading)
+  |> should.equal(binding.Initializing)
+  use outcome <- promise.await(attempt)
+  let ready = binding.settle_initialization(loading, with: outcome)
+  binding.initialization_status(ready)
+  |> should.equal(binding.Ready)
+  initialization_attempt_count(module)
+  |> should.equal(1)
+  case binding.initialized_module(ready) {
+    option.Some(ready_module) -> {
+      binding.resolve(ready_module, "View")
+      |> should.be_ok
+      |> binding.element([], [])
+      |> rendered_tree_summary
+      |> should.equal("section")
+      non_react_module_value(ready_module)
+      |> should.equal(42)
+    }
+    option.None -> should.fail()
+  }
+  let #(reused, second) = binding.initialize(ready)
+  binding.initialization_status(reused)
+  |> should.equal(binding.Ready)
+  initialization_attempt_count(module)
+  |> should.equal(1)
+  second
+  |> promise.map(fn(second_outcome) { should.equal(second_outcome, Ok(Nil)) })
+}
+
+/// Verifies concurrent consumers receive the exact same in-flight Promise.
+pub fn binding_initialization_concurrent_calls_share_one_flight_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("controlled", "never")
+  let #(loading, first) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  let #(shared, second) = binding.initialize(loading)
+  initialization_attempt_count(module)
+  |> should.equal(1)
+  initialization_promises_are_same(first, second)
+  |> should.be_true
+  resolve_initialization(module)
+  promise.await_list([first, second])
+  |> promise.map(fn(outcomes) {
+    outcomes
+    |> should.equal([Ok(Nil), Ok(Nil)])
+    binding.initialization_status(shared)
+    |> should.equal(binding.Initializing)
+  })
+}
+
+/// Verifies the default policy caches a rejected attempt until explicit reset.
+pub fn binding_initialization_cache_failure_requires_reset_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("reject", "never")
+  let #(loading, first) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  use first_outcome <- promise.await(first)
+  let failed = binding.settle_initialization(loading, with: first_outcome)
+  binding.initialization_status(failed)
+  |> should.equal(
+    binding.Failed(binding.InitializationRejected(
+      "@test/async-module",
+      "init",
+      "WebAssembly load failed",
+    )),
+  )
+  let #(cached, second) = binding.initialize(failed)
+  initialization_attempt_count(module)
+  |> should.equal(1)
+  use second_outcome <- promise.await(second)
+  second_outcome
+  |> should.equal(first_outcome)
+  let reset = binding.reset_initialization(cached)
+  binding.initialization_status(reset)
+  |> should.equal(binding.Uninitialized)
+  let #(_retrying, third) = binding.initialize(reset)
+  initialization_attempt_count(module)
+  |> should.equal(2)
+  third
+  |> promise.map(fn(outcome) {
+    case outcome {
+      Error(_) -> Nil
+      Ok(_) -> should.fail()
+    }
+  })
+}
+
+/// Verifies the retry policy starts a new attempt after a recorded failure.
+pub fn binding_initialization_retry_policy_restarts_after_failure_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("reject", "on-failure")
+  let #(loading, first) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  use first_outcome <- promise.await(first)
+  let failed = binding.settle_initialization(loading, with: first_outcome)
+  let #(_retrying, second) = binding.initialize(failed)
+  initialization_attempt_count(module)
+  |> should.equal(2)
+  second
+  |> promise.map(fn(outcome) {
+    case outcome {
+      Error(_) -> Nil
+      Ok(_) -> should.fail()
+    }
+  })
+}
+
+/// Verifies synchronous throws become start failures with retained context.
+pub fn binding_initialization_synchronous_throw_is_typed_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("throw", "never")
+  let #(failed, attempt) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  binding.initialization_status(failed)
+  |> should.equal(
+    binding.Failed(binding.InitializationCouldNotStart(
+      "@test/async-module",
+      "init",
+      "Initializer threw synchronously",
+    )),
+  )
+  attempt
+  |> promise.map(fn(outcome) {
+    outcome
+    |> should.equal(
+      Error(binding.InitializationCouldNotStart(
+        "@test/async-module",
+        "init",
+        "Initializer threw synchronously",
+      )),
+    )
+  })
+}
+
+/// Verifies non-Promise initializer returns fail before entering flight state.
+pub fn binding_initialization_non_promise_is_typed_test() -> promise.Promise(
+  Nil,
+) {
+  let module = test_initialization_module("non-promise", "never")
+  let #(_failed, attempt) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  attempt
+  |> promise.map(fn(outcome) {
+    outcome
+    |> should.equal(
+      Error(binding.InitializationCouldNotStart(
+        "@test/async-module",
+        "init",
+        "Initializer must return a Promise: init",
+      )),
+    )
+  })
+}
+
+/// Verifies reset cannot replace an in-flight attempt and create a race.
+pub fn binding_initialization_reset_while_loading_is_ignored_test() -> Nil {
+  let module = test_initialization_module("controlled", "never")
+  let #(loading, _attempt) =
+    module
+    |> binding.initialization
+    |> binding.initialize
+  loading
+  |> binding.reset_initialization
+  |> binding.initialization_status
+  |> should.equal(binding.Initializing)
+  initialization_attempt_count(module)
+  |> should.equal(1)
+  resolve_initialization(module)
+}
+
+/// Verifies the Lustre helper dispatches one completion for the shared attempt.
+pub fn binding_initialization_effect_dispatches_completion_test() -> promise.Promise(
+  Nil,
+) {
+  let counter = new_promise_callback_counter()
+  let module = test_initialization_module("success", "never")
+  let #(_loading, initialization_effect) =
+    module
+    |> binding.initialization
+    |> binding.initialization_effect(to_message: fn(outcome) { outcome })
+  effect.perform(
+    initialization_effect,
+    fn(_message) { increment_promise_callback_counter(counter) },
+    fn(_name, _data) { Nil },
+    fn(_selector) { Nil },
+    fn() { dynamic.string("") },
+    fn(_name, _value) { Nil },
+    fn(_name, _decoder) { Nil },
+    fn(_name) { Nil },
+  )
+  promise.wait(0)
+  |> promise.map(fn(_) {
+    promise_callback_count(counter)
+    |> should.equal(1)
+  })
 }
 
 /// Verifies property type conversion preserves all supported variants.
@@ -430,6 +702,24 @@ fn rendered_tree_summary(tree: redraw.Element) -> String
 
 @external(javascript, "./glendix_test_ffi.mjs", "test_component")
 fn test_component() -> binding.JsComponent
+
+@external(javascript, "./glendix_test_ffi.mjs", "test_initialization_module")
+fn test_initialization_module(mode: String, retry: String) -> binding.JsModule
+
+@external(javascript, "./glendix_test_ffi.mjs", "initialization_attempt_count")
+fn initialization_attempt_count(module: binding.JsModule) -> Int
+
+@external(javascript, "./glendix_test_ffi.mjs", "resolve_initialization")
+fn resolve_initialization(module: binding.JsModule) -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "initialization_promises_are_same")
+fn initialization_promises_are_same(
+  first: promise.Promise(Result(Nil, binding.InitializationError)),
+  second: promise.Promise(Result(Nil, binding.InitializationError)),
+) -> Bool
+
+@external(javascript, "./glendix_test_ffi.mjs", "non_react_module_value")
+fn non_react_module_value(module: binding.JsModule) -> Int
 
 @external(javascript, "./glendix_test_ffi.mjs", "generated_rollup_config_source")
 fn generated_rollup_config_source(with_secondary_widget: Bool) -> String

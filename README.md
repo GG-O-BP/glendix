@@ -222,6 +222,57 @@ pub fn pie_chart(
 `binding.element_` creates an element with children only, and
 `binding.void_element` creates one without children.
 
+Modules that require asynchronous setup use the extended table form:
+
+```toml
+[tools.glendix.bindings."@ironcalc/workbook"]
+exports = ["Workbook"]
+initializer = "init"
+retry = "on-failure"
+```
+
+`initializer` names a zero-argument export that must return a Promise. `retry`
+is either `"never"` (the default, which caches a failure until explicit reset)
+or `"on-failure"` (the next initialization call may start a new attempt after
+the failed result has been recorded). `exports` may be omitted for modules used
+only through non-React APIs. Legacy string and array values require no
+initialization and remain ready immediately.
+
+```gleam
+import gleam/javascript/promise
+import glendix/binding
+
+pub fn load(
+  module module: binding.JsModule,
+) -> #(
+  binding.ModuleInitialization,
+  promise.Promise(Result(Nil, binding.InitializationError)),
+) {
+  module
+  |> binding.initialization
+  |> binding.initialize
+}
+```
+
+Store the returned `ModuleInitialization` in the application model. Concurrent
+calls made with its `Initializing` value return the same Promise. When that
+Promise completes, pass its result to `binding.settle_initialization`; then
+`binding.initialized_module` makes the same ready module available to rendering
+and non-React consumers. `binding.initialization_effect` dispatches the result
+through Lustre, while `binding.use_initialization` consumes the same attempt in
+a React Suspense boundary. `binding.reset_initialization` explicitly clears a
+settled failure (or reinitializes a ready configured module).
+
+The installer retains one generated FFI boundary because the package and export
+names are read from `gleam.toml` after Glendix itself has compiled; Gleam
+`@external` package/export literals must exist before compilation. That boundary
+contains deterministic static named imports, metadata lookup, and the direct
+initializer call only. Promise creation, one-flight sharing, result mapping,
+retry state, and completion dispatch are implemented in Gleam with
+`gleam/javascript/promise`. No dynamic `import()` or generated Promise cache is
+used, so Rollup can still discover module WebAssembly assets.
+
+
 ## Browser environment and object props
 
 `glendix/js/environment` reads the browser color-scheme preference behind a

@@ -66,6 +66,59 @@ export function test_component() {
   return "section";
 }
 
+export function test_initialization_module(mode, retry) {
+  const state = {
+    attempts: 0,
+    resolve: null,
+    reject: null,
+  };
+  const run = () => {
+    state.attempts += 1;
+    switch (mode) {
+      case "success":
+        return Promise.resolve(undefined);
+      case "reject":
+        return Promise.reject(new Error("WebAssembly load failed"));
+      case "throw":
+        throw new Error("Initializer threw synchronously");
+      case "non-promise":
+        return undefined;
+      case "controlled":
+        return new Promise((resolve, reject) => {
+          state.resolve = resolve;
+          state.reject = reject;
+        });
+      default:
+        throw new Error(`Unsupported initialization test mode: ${mode}`);
+    }
+  };
+  return {
+    name: "@test/async-module",
+    exports: { View: "section" },
+    apiValue: 42,
+    initialization: mode === "none"
+      ? null
+      : { exportName: "init", retry, run },
+    state,
+  };
+}
+
+export function initialization_attempt_count(mod) {
+  return mod.state.attempts;
+}
+
+export function resolve_initialization(mod) {
+  mod.state.resolve?.(undefined);
+}
+
+export function initialization_promises_are_same(first, second) {
+  return first === second;
+}
+
+export function non_react_module_value(mod) {
+  return mod.apiValue;
+}
+
 export function generated_rollup_config_source(withSecondaryWidget) {
   return render_rollup_config(withSecondaryWidget ? ["SecondaryWidget"] : []);
 }

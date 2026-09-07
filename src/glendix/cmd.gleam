@@ -2,6 +2,7 @@
 ////
 
 import gleam/io
+import gleam/list
 import gleam/option
 import gleam/result
 import glendix/configuration
@@ -142,6 +143,14 @@ pub fn generate_bindings() -> Result(Nil, CommandError) {
   |> map_raw_error("generate JavaScript bindings")
 }
 
+/// Renders generated binding source for focused generator contract tests.
+@internal
+pub fn render_binding_source(
+  bindings bindings: List(#(String, List(String), String, String)),
+) -> String {
+  render_binding_source_raw(bindings)
+}
+
 /// Prints a command error at a command-line boundary.
 @internal
 pub fn report(result result: Result(Nil, CommandError)) -> Nil {
@@ -264,9 +273,35 @@ fn read_compatibility(
 
 fn read_bindings(
   project_configuration: configuration.Configuration,
-) -> Result(List(#(String, List(String))), CommandError) {
-  configuration.bindings(project_configuration)
+) -> Result(List(#(String, List(String), String, String)), CommandError) {
+  configuration.binding_configurations(project_configuration)
+  |> result.map(fn(bindings) { list.map(bindings, binding_input) })
   |> map_configuration_error("read binding configuration")
+}
+
+fn binding_input(
+  binding: configuration.BindingConfiguration,
+) -> #(String, List(String), String, String) {
+  let configuration.BindingConfiguration(module_name, exports, initialization) =
+    binding
+  case initialization {
+    configuration.NoInitialization -> #(module_name, exports, "", "never")
+    configuration.Initialize(export_name, failure_policy) -> #(
+      module_name,
+      exports,
+      export_name,
+      failure_policy_name(failure_policy),
+    )
+  }
+}
+
+fn failure_policy_name(
+  failure_policy: configuration.InitializationFailurePolicy,
+) -> String {
+  case failure_policy {
+    configuration.CacheFailure -> "never"
+    configuration.RetryFailure -> "on-failure"
+  }
 }
 
 fn map_raw_error(
@@ -305,19 +340,24 @@ fn file_exists(path: String) -> Bool
 @external(javascript, "./cmd_ffi.mjs", "run_with_bridge")
 fn run_with_bridge(
   command: String,
-  bindings: List(#(String, List(String))),
+  bindings: List(#(String, List(String), String, String)),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "run_dev_with_bridge")
 fn run_dev_with_bridge(
   build_command: String,
-  bindings: List(#(String, List(String))),
+  bindings: List(#(String, List(String), String, String)),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "generate_bindings")
 fn generate_bindings_raw(
-  bindings: List(#(String, List(String))),
+  bindings: List(#(String, List(String), String, String)),
 ) -> Result(Nil, RawCommandError)
+
+@external(javascript, "./cmd_ffi.mjs", "render_binding_source")
+fn render_binding_source_raw(
+  bindings: List(#(String, List(String), String, String)),
+) -> String
 
 @external(javascript, "./cmd_ffi.mjs", "run_experimental_native")
 fn run_experimental_native_raw(
@@ -329,14 +369,14 @@ fn run_experimental_native_raw(
 fn run_experimental_native_with_bridge_raw(
   package_manager: String,
   args: String,
-  bindings: List(#(String, List(String))),
+  bindings: List(#(String, List(String), String, String)),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "run_experimental_native_dev_with_bridge")
 fn run_experimental_native_dev_with_bridge_raw(
   package_manager: String,
   args: String,
-  bindings: List(#(String, List(String))),
+  bindings: List(#(String, List(String), String, String)),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "command_error_message")

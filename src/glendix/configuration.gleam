@@ -38,6 +38,31 @@ pub type ConfigurationError {
   CompatibilityIsUnsupported(value: String)
 }
 
+/// Controls what happens after an asynchronous module initializer fails.
+pub type InitializationFailurePolicy {
+  /// Reuses the failed result until the caller explicitly resets the lifecycle.
+  CacheFailure
+  /// Allows the next initialization call to start a new attempt.
+  RetryFailure
+}
+
+/// Describes whether and how one configured module is initialized.
+pub type BindingInitialization {
+  /// The module can be consumed immediately without asynchronous initialization.
+  NoInitialization
+  /// The module calls one configured zero-argument Promise-returning export.
+  Initialize(export_name: String, failure_policy: InitializationFailurePolicy)
+}
+
+/// One configured JavaScript module, its exported components, and lifecycle.
+pub type BindingConfiguration {
+  BindingConfiguration(
+    module_name: String,
+    exports: List(String),
+    initialization: BindingInitialization,
+  )
+}
+
 /// Reads the current project's `gleam.toml`.
 ///
 /// A missing file is represented by an empty configuration.
@@ -114,6 +139,24 @@ pub fn compatibility(
 pub fn bindings(
   configuration configuration: Configuration,
 ) -> Result(List(#(String, List(String))), ConfigurationError) {
+  binding_configurations(configuration)
+  |> result.map(fn(bindings) {
+    bindings
+    |> list.map(fn(binding) {
+      let BindingConfiguration(module_name, exports, _initialization) = binding
+      #(module_name, exports)
+    })
+  })
+}
+
+/// Returns the complete configured JavaScript module definitions.
+///
+/// Legacy scalar and array values produce modules without initialization.
+/// Extended table values preserve their initializer and failure policy.
+@internal
+pub fn binding_configurations(
+  configuration configuration: Configuration,
+) -> Result(List(BindingConfiguration), ConfigurationError) {
   let Configuration(document) = configuration
   case tom.get_table(document, ["tools", "glendix", "bindings"]) {
     Ok(table) ->
@@ -182,22 +225,20 @@ fn optional_string(
 
 fn parse_binding(
   entry: #(String, tom.Toml),
-) -> Result(#(String, List(String)), ConfigurationError) {
+) -> Result(BindingConfiguration, ConfigurationError) {
   let #(module_name, configured_components) = entry
   let key = ["tools", "glendix", "bindings", module_name]
   case configured_components {
-    tom.String(component) -> Ok(#(module_name, [component]))
-    tom.Array(components) -> {
-      use components <- result.try(
-        components
-        |> list.index_map(fn(component, index) { #(component, index) })
-        |> list.try_map(fn(indexed_component) {
-          let #(component, index) = indexed_component
-          string_component(component, list.append(key, [int.to_string(index)]))
-        }),
-      )
-      Ok(#(module_name, components))
-    }
+    tom.String(component) ->
+      Ok(BindingConfiguration(module_name, [component], NoInitialization))
+    tom.Array(components) ->
+      components
+      |> parse_components(key)
+      |> result.map(fn(components) {
+        BindingConfiguration(module_name, components, NoInitialization)
+      })
+    tom.Table(table) -> parse_binding_table(module_name, table, key)
+    tom.InlineTable(table) -> parse_binding_table(module_name, table, key)
     tom.Int(_) -> binding_type_error(key, "Int")
     tom.Float(_) -> binding_type_error(key, "Float")
     tom.Infinity(_) -> binding_type_error(key, "Infinity")
@@ -207,9 +248,127 @@ fn parse_binding(
     tom.Time(_) -> binding_type_error(key, "Time")
     tom.DateTime(_, _, _) -> binding_type_error(key, "DateTime")
     tom.ArrayOfTables(_) -> binding_type_error(key, "Array")
-    tom.Table(_) -> binding_type_error(key, "Table")
-    tom.InlineTable(_) -> binding_type_error(key, "Table")
   }
+}
+
+fn parse_binding_table(
+  module_name: String,
+  table: dict.Dict(String, tom.Toml),
+  key: List(String),
+) -> Result(BindingConfiguration, ConfigurationError) {
+  use _ <- result.try(validate_binding_table_keys(table, key))
+  use exports <- result.try(parse_optional_exports(table, key))
+  use initializer <- result.try(parse_optional_initializer(table, key))
+  use failure_policy <- result.try(parse_failure_policy(table, key, initializer))
+  let initialization = case initializer {
+    option.None -> NoInitialization
+    option.Some(export_name) -> Initialize(export_name, failure_policy)
+  }
+  Ok(BindingConfiguration(module_name, exports, initialization))
+}
+
+fn validate_binding_table_keys(
+  table: dict.Dict(String, tom.Toml),
+  key: List(String),
+) -> Result(Nil, ConfigurationError) {
+  let unsupported =
+    table
+    |> dict.keys
+    |> list.filter(fn(name) {
+      name != "exports" && name != "initializer" && name != "retry"
+    })
+    |> list.sort(by: string.compare)
+  case unsupported {
+    [] -> Ok(Nil)
+    [name, ..] ->
+      unsupported_value_error(
+        list.append(key, [name]),
+        "one of exports, initializer, or retry",
+        "unsupported key " <> string.inspect(name),
+      )
+  }
+}
+
+fn parse_optional_exports(
+  table: dict.Dict(String, tom.Toml),
+  key: List(String),
+) -> Result(List(String), ConfigurationError) {
+  case dict.get(table, "exports") {
+    Error(_) -> Ok([])
+    Ok(tom.String(component)) -> Ok([component])
+    Ok(tom.Array(components)) ->
+      parse_components(components, list.append(key, ["exports"]))
+    Ok(tom.Int(_)) -> binding_exports_type_error(key, "Int")
+    Ok(tom.Float(_)) -> binding_exports_type_error(key, "Float")
+    Ok(tom.Infinity(_)) -> binding_exports_type_error(key, "Infinity")
+    Ok(tom.Nan(_)) -> binding_exports_type_error(key, "NaN")
+    Ok(tom.Bool(_)) -> binding_exports_type_error(key, "Bool")
+    Ok(tom.Date(_)) -> binding_exports_type_error(key, "Date")
+    Ok(tom.Time(_)) -> binding_exports_type_error(key, "Time")
+    Ok(tom.DateTime(_, _, _)) -> binding_exports_type_error(key, "DateTime")
+    Ok(tom.ArrayOfTables(_)) -> binding_exports_type_error(key, "Array")
+    Ok(tom.Table(_)) -> binding_exports_type_error(key, "Table")
+    Ok(tom.InlineTable(_)) -> binding_exports_type_error(key, "Table")
+  }
+}
+
+fn parse_optional_initializer(
+  table: dict.Dict(String, tom.Toml),
+  key: List(String),
+) -> Result(option.Option(String), ConfigurationError) {
+  let initializer_key = list.append(key, ["initializer"])
+  case dict.get(table, "initializer") {
+    Error(_) -> Ok(option.None)
+    Ok(tom.String("")) ->
+      unsupported_value_error(
+        initializer_key,
+        "a non-empty String",
+        "empty String",
+      )
+    Ok(tom.String(export_name)) -> Ok(option.Some(export_name))
+    Ok(value) -> configured_type_error(initializer_key, "String", value)
+  }
+}
+
+fn parse_failure_policy(
+  table: dict.Dict(String, tom.Toml),
+  key: List(String),
+  initializer: option.Option(String),
+) -> Result(InitializationFailurePolicy, ConfigurationError) {
+  let retry_key = list.append(key, ["retry"])
+  case dict.get(table, "retry") {
+    Error(_) -> Ok(CacheFailure)
+    Ok(tom.String("never")) -> Ok(CacheFailure)
+    Ok(tom.String("on-failure")) ->
+      case initializer {
+        option.Some(_) -> Ok(RetryFailure)
+        option.None ->
+          unsupported_value_error(
+            retry_key,
+            "omitted when initializer is not configured",
+            "String(\"on-failure\")",
+          )
+      }
+    Ok(tom.String(value)) ->
+      unsupported_value_error(
+        retry_key,
+        "\"never\" or \"on-failure\"",
+        "String(" <> string.inspect(value) <> ")",
+      )
+    Ok(value) -> configured_type_error(retry_key, "String", value)
+  }
+}
+
+fn parse_components(
+  components: List(tom.Toml),
+  key: List(String),
+) -> Result(List(String), ConfigurationError) {
+  components
+  |> list.index_map(fn(component, index) { #(component, index) })
+  |> list.try_map(fn(indexed_component) {
+    let #(component, index) = indexed_component
+    string_component(component, list.append(key, [int.to_string(index)]))
+  })
 }
 
 fn string_component(
@@ -236,9 +395,20 @@ fn string_component(
 fn binding_type_error(
   key: List(String),
   got: String,
-) -> Result(#(String, List(String)), ConfigurationError) {
+) -> Result(BindingConfiguration, ConfigurationError) {
   Error(ConfiguredValueHasWrongType(
     key: key,
+    expected: "String, Array(String), or Table",
+    got: got,
+  ))
+}
+
+fn binding_exports_type_error(
+  key: List(String),
+  got: String,
+) -> Result(List(String), ConfigurationError) {
+  Error(ConfiguredValueHasWrongType(
+    key: list.append(key, ["exports"]),
     expected: "String or Array(String)",
     got: got,
   ))
@@ -249,6 +419,44 @@ fn component_type_error(
   got: String,
 ) -> Result(String, ConfigurationError) {
   Error(ConfiguredValueHasWrongType(key: key, expected: "String", got: got))
+}
+
+fn configured_type_error(
+  key: List(String),
+  expected: String,
+  got: tom.Toml,
+) -> Result(value, ConfigurationError) {
+  Error(ConfiguredValueHasWrongType(
+    key: key,
+    expected: expected,
+    got: tom_value_type(got),
+  ))
+}
+
+fn unsupported_value_error(
+  key: List(String),
+  expected: String,
+  got: String,
+) -> Result(value, ConfigurationError) {
+  Error(ConfiguredValueHasWrongType(key: key, expected: expected, got: got))
+}
+
+fn tom_value_type(value: tom.Toml) -> String {
+  case value {
+    tom.Int(_) -> "Int"
+    tom.Float(_) -> "Float"
+    tom.Infinity(_) -> "Infinity"
+    tom.Nan(_) -> "NaN"
+    tom.Bool(_) -> "Bool"
+    tom.String(_) -> "String"
+    tom.Date(_) -> "Date"
+    tom.Time(_) -> "Time"
+    tom.DateTime(_, _, _) -> "DateTime"
+    tom.Array(_) -> "Array"
+    tom.ArrayOfTables(_) -> "Array"
+    tom.Table(_) -> "Table"
+    tom.InlineTable(_) -> "Table"
+  }
 }
 
 fn parse_error_message(error: tom.ParseError) -> String {

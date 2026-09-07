@@ -136,6 +136,32 @@ pub fn pie_chart(
 `binding.element_` creates an element with children only, and
 `binding.void_element` creates one without children.
 
+For a module that must finish asynchronous setup before use, configure an
+extended binding:
+
+```toml
+[tools.glendix.bindings."@ironcalc/workbook"]
+exports = ["Workbook"]
+initializer = "init"
+retry = "on-failure"
+```
+
+The initializer must be a zero-argument Promise-returning export. `retry` is
+`"never"` by default (cache failure until `binding.reset_initialization`) or
+`"on-failure"` (allow a later attempt after settlement). Create state with
+`binding.initialization`, call `binding.initialize`, and store the returned
+`ModuleInitialization`. Concurrent calls share its Promise. Record completion
+with `binding.settle_initialization`, then use `binding.initialized_module` for
+both rendering and non-React consumers. Lustre can use
+`binding.initialization_effect`; React Suspense can use
+`binding.use_initialization` with that same Promise.
+
+Glendix keeps only a generated static-import/direct-call FFI for names selected
+from TOML after package compilation. All Promise and retry orchestration uses
+`gleam/javascript/promise`; the generated code has no dynamic import or Promise
+cache, preserving deterministic Rollup and WebAssembly asset discovery.
+
+
 ## Browser environment and object props
 
 Use `glendix/js/environment` to read `prefers-color-scheme` without exposing
