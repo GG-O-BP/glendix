@@ -195,7 +195,7 @@ pub fn define_missing_file_read_contract_test() -> Nil {
       error_path
       |> should.equal(path)
       reason
-      |> should.not_equal("")
+      |> should.equal("No such file or directory")
     }
     Ok(_) -> should.fail()
     Error(_) -> should.fail()
@@ -210,7 +210,7 @@ pub fn define_failed_file_write_contract_test() -> Nil {
       error_path
       |> should.equal(path)
       reason
-      |> should.not_equal("")
+      |> should.equal("No such file or directory")
     }
     Ok(_) -> should.fail()
     Error(_) -> should.fail()
