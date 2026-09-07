@@ -192,3 +192,46 @@ export function process_exit_code() {
 export function reset_process_exit_code() {
   process.exitCode = 0;
 }
+
+// Installs a deterministic `matchMedia` stub so color-scheme mapping is tested
+// without a real browser. Each installer sets the full global state, so the
+// tests do not depend on execution order.
+function install_match_media(preference) {
+  globalThis.matchMedia = query => {
+    const wants_dark = query.includes("dark");
+    const wants_light = query.includes("light");
+    let matches = false;
+    if (preference === "dark") matches = wants_dark;
+    else if (preference === "light") matches = wants_light;
+    return { matches };
+  };
+}
+
+export function stub_prefers_dark() {
+  install_match_media("dark");
+}
+
+export function stub_prefers_light() {
+  install_match_media("light");
+}
+
+export function stub_prefers_none() {
+  // matchMedia is present but neither query matches (no explicit preference).
+  install_match_media("none");
+}
+
+export function clear_match_media() {
+  delete globalThis.matchMedia;
+}
+
+export function object_json(object) {
+  return JSON.stringify(object);
+}
+
+export function element_prop_json(element, key) {
+  return JSON.stringify(element.props[key]);
+}
+
+export function element_prop_is(element, key, expected) {
+  return element.props[key] === expected;
+}

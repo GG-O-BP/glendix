@@ -51,6 +51,45 @@ pub fn pie_chart(
 
 npm バインディングは Glendix 単体で動作します。
 
+## ブラウザ環境とオブジェクト prop
+
+`glendix/js/environment` を使うと、`window.matchMedia` を公開せずに
+`prefers-color-scheme` を読み取れます。`color_scheme` は `Light`、`Dark`、
+`System` を返し、`resolved_color_scheme` は `ResolvedLight`、`ResolvedDark`、
+または `ResolutionUnavailable` を返します。設定変更の動的な購読は意図的に
+対象外なので、アプリケーションによる再描画のタイミングで再照会します。
+
+順序付きの型付きエントリから 1 つの素の JavaScript 設定オブジェクトを構築し、
+Redraw の属性を通して外部コンポーネントに渡します。
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
+`object.from_entries` は通常の文字列キーの順序を保持し、重複キーには最後の値を
+採用し、特殊なキーもデータとして安全に格納します。
+
 ## Marketplace ウィジェットとの組み合わせ
 
 ```toml

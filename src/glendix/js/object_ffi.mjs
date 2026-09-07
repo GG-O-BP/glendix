@@ -1,9 +1,8 @@
 export function create_object(entries) {
-  const obj = {};
-  for (const pair of entries.toArray()) {
-    obj[pair[0]] = pair[1];
-  }
-  return obj;
+  // Object.fromEntries defines every key as an own data property. In
+  // particular, "__proto__" remains ordinary user data instead of invoking
+  // Object.prototype's legacy prototype setter.
+  return Object.fromEntries(entries.toArray());
 }
 export function empty_object() {
   return {};

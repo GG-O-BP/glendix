@@ -149,6 +149,47 @@ pub fn pie_chart(
 `binding.element_` creates an element with children only, and
 `binding.void_element` creates one without children.
 
+## Browser environment and object props
+
+`glendix/js/environment` reads the browser color-scheme preference behind a
+typed boundary, so widgets never call `window.matchMedia` from an
+application-local FFI. `color_scheme` reports the operating-system preference as
+`Light`, `Dark`, or `System`, and `resolved_color_scheme` resolves what applies
+as `ResolvedLight`, `ResolvedDark`, or `ResolutionUnavailable` when `matchMedia`
+cannot be queried. Dynamic preference-change subscriptions (`MediaQueryList`
+`change` events) are intentionally out of scope; re-query during a
+props- or revision-driven re-render.
+
+`glendix/js/object` builds a plain JavaScript object from ordered typed entries,
+preserving entry order and keeping the last value for a duplicate key. The
+object passes to an external React component as one prop through a Redraw
+attribute, without any application-local React FFI:
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
 ## WebAssembly dependencies
 
 Glendix automatically packages browser WebAssembly modules referenced with the

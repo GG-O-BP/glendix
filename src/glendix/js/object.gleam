@@ -46,7 +46,12 @@ pub fn from_object(object object: JsObject) -> JsValue {
   object_value_raw(object)
 }
 
-/// Creates an object from key-value entries.
+/// Creates an object from ordered key-value entries.
+///
+/// The typed input prevents malformed entry shapes. JavaScript property
+/// enumeration rules preserve the order of ordinary string keys, duplicate
+/// keys keep their last value, and special keys such as `__proto__` are stored
+/// as own data properties.
 pub fn from_entries(entries entries: List(#(String, JsValue))) -> JsObject {
   create_object_raw(entries)
 }

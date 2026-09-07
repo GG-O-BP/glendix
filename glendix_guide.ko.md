@@ -56,6 +56,45 @@ pub fn pie_chart(
 npm 바인딩은 Glendix만으로 동작한다. `binding.element_`와
 `binding.void_element`도 제공한다.
 
+## 브라우저 환경과 객체 prop
+
+`glendix/js/environment`를 사용하면 `window.matchMedia`를 노출하지 않고
+`prefers-color-scheme`을 읽을 수 있다. `color_scheme`은 `Light`, `Dark`,
+`System`을 반환하고, `resolved_color_scheme`은 `ResolvedLight`,
+`ResolvedDark`, 또는 `ResolutionUnavailable`을 반환한다. 설정 변경의 동적
+구독은 의도적으로 범위 밖이므로 애플리케이션이 재렌더링할 때 다시 조회한다.
+
+순서 있는 typed 항목으로 하나의 일반 JavaScript 설정 객체를 만들고 Redraw 속성을
+통해 외부 컴포넌트에 전달한다.
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
+`object.from_entries`는 일반 문자열 키 순서를 보존하고, 중복 키에는 마지막 값을
+적용하며, 특수 키도 데이터로 안전하게 저장한다.
+
 ## Marketplace 위젯과 조합
 
 ```toml

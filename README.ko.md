@@ -93,6 +93,46 @@ pub fn pie_chart(
 npm 바인딩은 Glendix만으로 동작한다. `binding.element_`와
 `binding.void_element`도 제공한다.
 
+## 브라우저 환경과 객체 prop
+
+`glendix/js/environment`는 `window.matchMedia`를 타입 경계 뒤에 숨겨, 위젯이
+애플리케이션 로컬 FFI에서 직접 호출하지 않고 브라우저 컬러 스킴 설정을 읽게 한다.
+`color_scheme`은 OS 설정을 `Light`, `Dark`, `System`으로 보고하고,
+`resolved_color_scheme`은 실제 적용되는 값을 `ResolvedLight`, `ResolvedDark`,
+또는 `matchMedia`를 조회할 수 없을 때의 `ResolutionUnavailable`로 확정한다.
+설정 변경의 동적 구독(`MediaQueryList`의 `change` 이벤트)은 의도적으로 범위
+밖이며, props나 revision 기반 재렌더링 시점에 다시 조회한다.
+
+`glendix/js/object`는 순서 있는 typed 항목으로 일반 JavaScript 객체를 만들며,
+항목 순서를 보존하고 중복 키는 마지막 값을 적용한다. 만들어진 객체는 Redraw 속성을
+통해 애플리케이션 로컬 React FFI 없이 외부 React 컴포넌트에 하나의 prop으로 전달할
+수 있다.
+
+```gleam
+import glendix/binding
+import glendix/js/environment
+import glendix/js/object
+import redraw
+import redraw/dom/attribute
+
+pub fn themed_component(
+  component component: binding.JsComponent,
+) -> redraw.Element {
+  let theme = case environment.resolved_color_scheme() {
+    environment.ResolvedDark -> "dark"
+    environment.ResolvedLight -> "light"
+    environment.ResolutionUnavailable -> "light"
+  }
+  let configuration =
+    object.from_entries([#("theme", object.string(theme))])
+  binding.element(
+    component,
+    [attribute.attribute("config", object.from_object(configuration))],
+    [],
+  )
+}
+```
+
 ## WebAssembly 의존성
 
 Glendix는 브라우저 도구가 사용하는 다음 표준 정적 URL 형식의 WebAssembly
