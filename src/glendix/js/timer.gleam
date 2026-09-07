@@ -1,5 +1,10 @@
-//// Provides typed JavaScript timer handles.
+//// Provides typed JavaScript timer handles backed by Plinth.
 ////
+//// Glendix's established timer handle stays public through identity adapters
+//// so callers retain the original platform handle at the JavaScript boundary.
+////
+
+import plinth/javascript/global
 
 /// Represents a JavaScript timer handle.
 pub type TimerId
@@ -9,12 +14,13 @@ pub fn set_timeout(
   callback callback: fn() -> Nil,
   after milliseconds: Int,
 ) -> TimerId {
-  set_timeout_raw(callback, milliseconds)
+  global.set_timeout(milliseconds, callback)
+  |> from_plinth_timer
 }
 
 /// Cancels a one-shot timer.
 pub fn clear_timeout(timer timer: TimerId) -> Nil {
-  clear_timeout_raw(timer)
+  global.clear_timeout(to_plinth_timer(timer))
 }
 
 /// Starts a repeating timer.
@@ -22,23 +28,18 @@ pub fn set_interval(
   callback callback: fn() -> Nil,
   every milliseconds: Int,
 ) -> TimerId {
-  set_interval_raw(callback, milliseconds)
+  global.set_interval(milliseconds, callback)
+  |> from_plinth_timer
 }
 
 /// Cancels a repeating timer.
 pub fn clear_interval(timer timer: TimerId) -> Nil {
-  clear_interval_raw(timer)
+  global.clear_interval(to_plinth_timer(timer))
 }
 
 // -- FFI --
-@external(javascript, "./timer_ffi.mjs", "set_timeout")
-fn set_timeout_raw(callback: fn() -> Nil, milliseconds: Int) -> TimerId
+@external(javascript, "./timer_ffi.mjs", "identity")
+fn from_plinth_timer(timer: global.TimerID) -> TimerId
 
-@external(javascript, "./timer_ffi.mjs", "clear_timeout")
-fn clear_timeout_raw(timer: TimerId) -> Nil
-
-@external(javascript, "./timer_ffi.mjs", "set_interval")
-fn set_interval_raw(callback: fn() -> Nil, milliseconds: Int) -> TimerId
-
-@external(javascript, "./timer_ffi.mjs", "clear_interval")
-fn clear_interval_raw(timer: TimerId) -> Nil
+@external(javascript, "./timer_ffi.mjs", "identity")
+fn to_plinth_timer(timer: TimerId) -> global.TimerID
