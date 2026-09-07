@@ -16,6 +16,8 @@ import glendix/define/document
 import glendix/define/file_boundary
 import glendix/define/model
 import glendix/define/ui
+import glendix/internal/define/terminal_control
+import plinth/node/process
 
 /// Runs this module's command-line entrypoint.
 pub fn main() -> Nil {
@@ -53,7 +55,7 @@ pub fn main() -> Nil {
                   edit_group_idx: 0,
                   edit_item_idx: 0,
                 )
-              case is_tty() {
+              case terminal_control.is_tty() {
                 True -> {
                   case enter_tui() {
                     Error(error) -> {
@@ -80,7 +82,7 @@ pub fn main() -> Nil {
                               ),
                             )
                         }
-                        exit_process()
+                        process.exit(code: 0)
                         promise.resolve(Nil)
                       }
                       Nil
@@ -189,8 +191,6 @@ type TerminalControlError {
   RawModeCouldNotBeDisabled(reason: String)
 }
 
-type RawTerminalModeError
-
 fn parse_key(raw: #(Int, String)) -> KeyInput {
   case raw.0 {
     1 -> KeyUp
@@ -224,9 +224,9 @@ fn buf_delete(buffer: String, pos: Int) -> String {
 
 fn enter_tui() -> Result(Nil, TerminalControlError) {
   use _ <- result.try(
-    set_terminal_raw_mode(True)
+    terminal_control.set_raw_mode(terminal_control.Enabled)
     |> result.map_error(fn(error) {
-      RawModeCouldNotBeEnabled(raw_terminal_mode_error_message(error))
+      RawModeCouldNotBeEnabled(terminal_control.raw_mode_error_message(error))
     }),
   )
   stdout.execute([command.EnterAlternateScreen, command.HideCursor])
@@ -235,14 +235,14 @@ fn enter_tui() -> Result(Nil, TerminalControlError) {
 
 fn exit_tui() -> Result(Nil, TerminalControlError) {
   stdout.execute([command.ShowCursor, command.LeaveAlternateScreen])
-  set_terminal_raw_mode(False)
+  terminal_control.set_raw_mode(terminal_control.Disabled)
   |> result.map_error(fn(error) {
-    RawModeCouldNotBeDisabled(raw_terminal_mode_error_message(error))
+    RawModeCouldNotBeDisabled(terminal_control.raw_mode_error_message(error))
   })
 }
 
 fn render(state: DefineState) -> Nil {
-  let #(_, term_rows) = terminal_size()
+  let #(_, term_rows) = terminal_control.size()
   let screen = case state.view_mode {
     TreeView ->
       ui.render_tree_screen(
@@ -344,7 +344,7 @@ fn render(state: DefineState) -> Nil {
 
 fn tui_loop(state: DefineState) -> promise.Promise(DefineState) {
   render(state)
-  use raw <- promise.await(poll_key_raw(0))
+  use raw <- promise.await(terminal_control.poll_key_raw(0))
   let key = parse_key(raw)
   case key {
     KeyNone -> tui_loop(state)
@@ -475,7 +475,7 @@ fn move_cursor(state: DefineState, delta: Int) -> DefineState {
     0 -> state
     _ -> {
       let new_cursor = int.clamp(state.cursor + delta, 0, max - 1)
-      let #(_, term_rows) = terminal_size()
+      let #(_, term_rows) = terminal_control.size()
       let visible = case term_rows > 6 {
         True -> term_rows - 6
         False -> 10
@@ -2072,22 +2072,3 @@ fn file_error_message(error: file_boundary.FileError) -> String {
       "Unable to write " <> path <> ": " <> reason
   }
 }
-
-// -- FFI --
-@external(javascript, "./define_ffi.mjs", "is_tty")
-fn is_tty() -> Bool
-
-@external(javascript, "./define_ffi.mjs", "exit_process")
-fn exit_process() -> Nil
-
-@external(javascript, "./define_ffi.mjs", "terminal_size")
-fn terminal_size() -> #(Int, Int)
-
-@external(javascript, "./define_ffi.mjs", "poll_key_raw")
-fn poll_key_raw(timeout_ms: Int) -> promise.Promise(#(Int, String))
-
-@external(javascript, "./define_ffi.mjs", "set_terminal_raw_mode")
-fn set_terminal_raw_mode(enabled: Bool) -> Result(Nil, RawTerminalModeError)
-
-@external(javascript, "./define_ffi.mjs", "terminal_mode_error_message")
-fn raw_terminal_mode_error_message(error: RawTerminalModeError) -> String
