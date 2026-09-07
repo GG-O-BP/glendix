@@ -12,6 +12,7 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
+import glendix/define/document
 import glendix/define/file_boundary
 import glendix/define/model
 import glendix/define/ui
@@ -29,64 +30,72 @@ pub fn main() -> Nil {
           io.println("\n  " <> style.red(file_error_message(error)))
           Nil
         }
-        Ok(xml_content) -> {
-          let #(meta, groups) = parse_widget_xml(xml_content)
-          let state =
-            DefineState(
-              xml_path: xml_path,
-              widget_meta: meta,
-              groups: groups,
-              cursor: 0,
-              collapsed: [],
-              view_mode: TreeView,
-              dirty: False,
-              status_msg: option.None,
-              scroll_offset: 0,
-              add_target_group: 0,
-              selected_type_idx: 0,
-              edit_group_idx: 0,
-              edit_item_idx: 0,
-            )
-          case is_tty() {
-            True -> {
-              case enter_tui() {
-                Error(error) -> {
-                  io.println(
-                    "\n  "
-                    <> style.red(
-                      "Unable to enable terminal raw mode: "
-                      <> string.inspect(error),
-                    ),
-                  )
-                  Nil
-                }
-                Ok(Nil) -> {
-                  {
-                    use _final <- promise.await(tui_loop(state))
-                    case exit_tui() {
-                      Ok(Nil) -> Nil
-                      Error(error) ->
-                        io.println(
-                          "\n  "
-                          <> style.red(
-                            "Unable to restore terminal mode: "
-                            <> string.inspect(error),
-                          ),
-                        )
+        Ok(xml_content) ->
+          case document.parse(xml_content) {
+            Error(error) -> {
+              io.println("\n  " <> style.red(document.error_message(error)))
+              Nil
+            }
+            Ok(#(meta, groups)) -> {
+              let state =
+                DefineState(
+                  xml_path: xml_path,
+                  widget_meta: meta,
+                  groups: groups,
+                  cursor: 0,
+                  collapsed: [],
+                  view_mode: TreeView,
+                  dirty: False,
+                  status_msg: option.None,
+                  scroll_offset: 0,
+                  add_target_group: 0,
+                  selected_type_idx: 0,
+                  edit_group_idx: 0,
+                  edit_item_idx: 0,
+                )
+              case is_tty() {
+                True -> {
+                  case enter_tui() {
+                    Error(error) -> {
+                      io.println(
+                        "\n  "
+                        <> style.red(
+                          "Unable to enable terminal raw mode: "
+                          <> string.inspect(error),
+                        ),
+                      )
+                      Nil
                     }
-                    exit_process()
-                    promise.resolve(Nil)
+                    Ok(Nil) -> {
+                      {
+                        use _final <- promise.await(tui_loop(state))
+                        case exit_tui() {
+                          Ok(Nil) -> Nil
+                          Error(error) ->
+                            io.println(
+                              "\n  "
+                              <> style.red(
+                                "Unable to restore terminal mode: "
+                                <> string.inspect(error),
+                              ),
+                            )
+                        }
+                        exit_process()
+                        promise.resolve(Nil)
+                      }
+                      Nil
+                    }
                   }
+                }
+                False -> {
+                  io.println(
+                    "\n  " <> style.yellow("TTY가 아닙니다. 대화형 모드가 필요합니다."),
+                  )
                   Nil
                 }
               }
             }
-            False -> {
-              io.println("\n  " <> style.yellow("TTY가 아닙니다. 대화형 모드가 필요합니다."))
-              Nil
-            }
           }
-        }
       }
     }
   }
@@ -2035,7 +2044,7 @@ fn return_from_multi_select(
 }
 
 fn save_xml(state: DefineState) -> DefineState {
-  let xml = serialize_widget_xml(state.widget_meta, state.groups)
+  let xml = document.serialize(state.widget_meta, state.groups)
   case file_boundary.write(state.xml_path, xml) {
     Ok(Nil) ->
       DefineState(
@@ -2073,17 +2082,6 @@ fn exit_process() -> Nil
 
 @external(javascript, "./define_ffi.mjs", "terminal_size")
 fn terminal_size() -> #(Int, Int)
-
-@external(javascript, "./define_ffi.mjs", "parse_widget_xml")
-fn parse_widget_xml(
-  xml: String,
-) -> #(model.WidgetMeta, List(model.PropertyGroup))
-
-@external(javascript, "./define_ffi.mjs", "serialize_widget_xml")
-fn serialize_widget_xml(
-  meta: model.WidgetMeta,
-  groups: List(model.PropertyGroup),
-) -> String
 
 @external(javascript, "./define_ffi.mjs", "poll_key_raw")
 fn poll_key_raw(timeout_ms: Int) -> promise.Promise(#(Int, String))
