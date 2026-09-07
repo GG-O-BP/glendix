@@ -26,6 +26,39 @@ glendix = ">= 6.0.0 and < 7.0.0"
 Mendix クライアント値または MPK コンポーネントが必要な場合だけ `mendraw`、
 パッケージ取得が必要な場合だけ `mxpak` を利用します。
 
+## 型付き JSON ヘルパー
+
+`glendix/js/json` はシリアライズとパースを `gleam_json` に委譲します。
+シリアライズ API は以前のまま利用できます。
+
+```gleam
+import gleam/json
+import glendix/js/json as glendix_json
+
+glendix_json.stringify(value: json.int(42))
+```
+
+Glendix 6 以降、パース時には期待する結果型の decoder を指定します。
+
+```gleam
+import gleam/dynamic/decode
+import glendix/js/json as glendix_json
+
+glendix_json.parse(
+  from: "{\"name\":\"glendix\"}",
+  using: {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  },
+)
+```
+
+6 より前の `parse(from: source)` 呼び出しは
+`parse(from: source, using: decoder)` に移行してください。構文エラーは
+`InvalidSyntax`、有効な JSON が decoder と一致しない場合は
+`DecoderMismatch` を返します。どちらも決定的で、JavaScript engine 固有の
+例外メッセージを公開しません。
+
 ## 実験的ネイティブパッケージマネージャー
 
 Glendix はプロジェクトのパッケージマネージャー・JavaScript runtime と

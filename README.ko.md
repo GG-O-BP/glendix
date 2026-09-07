@@ -25,6 +25,38 @@ glendix = ">= 6.0.0 and < 7.0.0"
 Mendix 클라이언트 값이나 MPK 컴포넌트가 필요할 때만 `mendraw`를 추가하고,
 패키지 설치가 필요할 때만 `mxpak`을 사용한다.
 
+## 타입 기반 JSON 도우미
+
+`glendix/js/json`은 직렬화와 파싱을 `gleam_json`에 위임한다. 직렬화 API는
+기존과 호환된다.
+
+```gleam
+import gleam/json
+import glendix/js/json as glendix_json
+
+glendix_json.stringify(value: json.int(42))
+```
+
+Glendix 6부터 파싱할 때는 기대하는 결과 타입의 decoder를 명시해야 한다.
+
+```gleam
+import gleam/dynamic/decode
+import glendix/js/json as glendix_json
+
+glendix_json.parse(
+  from: "{\"name\":\"glendix\"}",
+  using: {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  },
+)
+```
+
+6 이전의 `parse(from: source)` 호출은
+`parse(from: source, using: decoder)`로 변경한다. 문법적으로 잘못된 JSON은
+`InvalidSyntax`, 유효한 JSON이 decoder와 맞지 않으면 `DecoderMismatch`를
+반환한다. 두 오류 모두 결정적이며 JavaScript 엔진별 예외 메시지를 노출하지 않는다.
+
 ## 실험적 네이티브 패키지 매니저
 
 Glendix는 프로젝트의 패키지 매니저·JavaScript 런타임과 Mendix Pluggable
