@@ -26,6 +26,39 @@ glendix = ">= 5.1.0 and < 6.0.0"
 Mendix クライアント値または MPK コンポーネントが必要な場合だけ `mendraw`、
 パッケージ取得が必要な場合だけ `mxpak` を利用します。
 
+## Lustre ブリッジ
+
+`glendix/lustre` は標準的な Lustre の `Model`・`update`・`view` を
+Redraw/React element に変換し、`use_tea`、`use_simple`、`render`、`embed`、
+`keyed_host` を提供します。
+
+### Props による再マウント
+
+型付き props から計算した revision が変わったときに Lustre application 全体を
+再起動する必要がある場合は、`keyed_host` を使用します。
+
+```gleam
+pub fn component(props: Props) -> redraw.Element {
+  glendix_lustre.keyed_host(
+    key: props_revision(props),
+    props: props,
+    render: fn(current_props) {
+      glendix_lustre.use_tea(
+        init(current_props),
+        update,
+        view,
+      )
+    },
+  )
+}
+```
+
+`props_revision` は application の型付き state から pure Gleam で導出します。
+key が同じなら最新 props を callback に渡しながら application を維持し、key が
+変われば再マウントします。評価済みの `use_tea` result に直接 key を付けるだけでは
+hook を所有する React component boundary は作られず、`lustre/element/keyed` は
+実行中の Lustre tree 内の child にしか影響しません。
+
 ## 外部 npm React コンポーネント
 
 ```toml

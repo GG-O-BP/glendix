@@ -141,6 +141,12 @@ const REACT_EMBED = Symbol.for("glendix.react_embed");
 export function embed(react_element) {
   return { [REACT_EMBED]: true, element: react_element };
 }
+function KeyedHost({ props, render }) {
+  return render(props);
+}
+export function host(props, render) {
+  return createElement(KeyedHost, { props, render });
+}
 function convert(el, dispatch) {
   if (el == null) return null;
   if (typeof el === "string") return el;
