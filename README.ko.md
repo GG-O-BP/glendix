@@ -136,6 +136,12 @@ component 경계도 만든다. 이미 평가된 `use_tea` 결과를 `redraw.keye
 recharts = ["PieChart", "Pie"]
 ```
 
+Glendix는 이 설정을 표준 TOML로 해석한다. 패키지 매니저, 호환 모드, 모듈 및
+컴포넌트 이름은 따옴표로 감싼 TOML 문자열이어야 하며, 각 바인딩 값은 문자열
+하나 또는 문자열 배열이어야 한다. 잘못된 TOML, 중복 키, 따옴표 없는 문자열
+형태의 값은 일부만 해석하지 않고 오류로 처리한다. `gleam.toml` 또는 Glendix
+테이블이 없으면 기존처럼 override와 바인딩이 없는 것으로 처리한다.
+
 ```gleam
 import gleam/result
 import glendix/binding

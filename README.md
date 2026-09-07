@@ -196,6 +196,13 @@ recharts = ["PieChart", "Pie"]
 Install the npm package, then run `gleam run -m glendix/install`. Glendix owns
 both component lookup and element construction; Mendraw is not required:
 
+Glendix parses this configuration as standard TOML. Package-manager,
+compatibility, module, and component names must be quoted TOML strings, and
+each binding value must be either one string or an array of strings. Malformed
+TOML, duplicate keys, and unquoted string-like values are rejected instead of
+being partially interpreted. A missing `gleam.toml` or missing Glendix table
+still means that no override or bindings are configured.
+
 ```gleam
 import gleam/result
 import glendix/binding

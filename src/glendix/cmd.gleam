@@ -4,6 +4,7 @@
 import gleam/io
 import gleam/option
 import gleam/result
+import glendix/configuration
 
 /// Describes a JavaScript tooling failure.
 pub type CommandError {
@@ -19,18 +20,10 @@ pub fn exec(command command: String) -> Result(Nil, CommandError) {
 
 /// Detects the configured or lockfile-selected JavaScript package manager.
 pub fn detect_package_manager() -> Result(String, CommandError) {
-  use override <- result.try(
-    read_pm_override()
-    |> map_raw_error("read package-manager override"),
-  )
-  case override {
-    option.Some(name) ->
-      name
-      |> parse_package_manager
-      |> result.map(package_manager_name)
-    option.None ->
-      Ok(package_manager_name(detect_package_manager_from_lockfile()))
-  }
+  use project_configuration <- result.try(read_configuration(
+    "read package-manager override",
+  ))
+  detect_package_manager_with(project_configuration)
 }
 
 /// Detects the package-manager command used to run JavaScript tools.
@@ -58,14 +51,23 @@ pub fn package_manager_commands(
 
 /// Runs Pluggable Widgets Tools with the supplied arguments.
 pub fn run_tool(args args: String) -> Result(Nil, CommandError) {
-  use package_manager <- result.try(detect_package_manager())
-  use experimental_native <- result.try(read_experimental_native_mode())
-  case experimental_native {
-    True ->
+  use project_configuration <- result.try(read_configuration(
+    "read tool configuration",
+  ))
+  use package_manager <- result.try(detect_package_manager_with(
+    project_configuration,
+  ))
+  use compatibility <- result.try(read_compatibility(project_configuration))
+  case compatibility {
+    configuration.ExperimentalNative ->
       run_experimental_native_raw(package_manager, args)
       |> map_raw_error("run experimental-native tool")
-    False -> {
-      use runner <- result.try(detect_runner())
+    configuration.Standard -> {
+      use runner <- result.try(
+        package_manager
+        |> parse_package_manager
+        |> result.map(package_manager_runner),
+      )
       exec(runner <> " pluggable-widgets-tools " <> args)
     }
   }
@@ -73,15 +75,25 @@ pub fn run_tool(args args: String) -> Result(Nil, CommandError) {
 
 /// Runs Pluggable Widgets Tools through the Glendix bridge.
 pub fn run_tool_with_bridge(args args: String) -> Result(Nil, CommandError) {
-  use package_manager <- result.try(detect_package_manager())
-  use experimental_native <- result.try(read_experimental_native_mode())
-  case experimental_native {
-    True ->
-      run_experimental_native_with_bridge_raw(package_manager, args)
+  use project_configuration <- result.try(read_configuration(
+    "read tool configuration",
+  ))
+  use package_manager <- result.try(detect_package_manager_with(
+    project_configuration,
+  ))
+  use compatibility <- result.try(read_compatibility(project_configuration))
+  use bindings <- result.try(read_bindings(project_configuration))
+  case compatibility {
+    configuration.ExperimentalNative ->
+      run_experimental_native_with_bridge_raw(package_manager, args, bindings)
       |> map_raw_error("run experimental-native tool with bridge")
-    False -> {
-      use runner <- result.try(detect_runner())
-      run_with_bridge(runner <> " pluggable-widgets-tools " <> args)
+    configuration.Standard -> {
+      use runner <- result.try(
+        package_manager
+        |> parse_package_manager
+        |> result.map(package_manager_runner),
+      )
+      run_with_bridge(runner <> " pluggable-widgets-tools " <> args, bindings)
       |> map_raw_error("run tool with bridge")
     }
   }
@@ -89,15 +101,32 @@ pub fn run_tool_with_bridge(args args: String) -> Result(Nil, CommandError) {
 
 /// Runs the web build in development mode through the Glendix bridge.
 pub fn run_tool_dev() -> Result(Nil, CommandError) {
-  use package_manager <- result.try(detect_package_manager())
-  use experimental_native <- result.try(read_experimental_native_mode())
-  case experimental_native {
-    True ->
-      run_experimental_native_dev_with_bridge_raw(package_manager, "build:web")
+  use project_configuration <- result.try(read_configuration(
+    "read tool configuration",
+  ))
+  use package_manager <- result.try(detect_package_manager_with(
+    project_configuration,
+  ))
+  use compatibility <- result.try(read_compatibility(project_configuration))
+  use bindings <- result.try(read_bindings(project_configuration))
+  case compatibility {
+    configuration.ExperimentalNative ->
+      run_experimental_native_dev_with_bridge_raw(
+        package_manager,
+        "build:web",
+        bindings,
+      )
       |> map_raw_error("run experimental-native development tool with bridge")
-    False -> {
-      use runner <- result.try(detect_runner())
-      run_dev_with_bridge(runner <> " pluggable-widgets-tools build:web")
+    configuration.Standard -> {
+      use runner <- result.try(
+        package_manager
+        |> parse_package_manager
+        |> result.map(package_manager_runner),
+      )
+      run_dev_with_bridge(
+        runner <> " pluggable-widgets-tools build:web",
+        bindings,
+      )
       |> map_raw_error("run development tool with bridge")
     }
   }
@@ -105,7 +134,11 @@ pub fn run_tool_dev() -> Result(Nil, CommandError) {
 
 /// Generates Mendix widget bindings.
 pub fn generate_bindings() -> Result(Nil, CommandError) {
-  generate_bindings_raw()
+  use project_configuration <- result.try(read_configuration(
+    "generate JavaScript bindings",
+  ))
+  use bindings <- result.try(read_bindings(project_configuration))
+  generate_bindings_raw(bindings)
   |> map_raw_error("generate JavaScript bindings")
 }
 
@@ -129,6 +162,23 @@ type PackageManager {
   Pnpm
   Bun
   Deno
+}
+
+fn detect_package_manager_with(
+  project_configuration: configuration.Configuration,
+) -> Result(String, CommandError) {
+  use override <- result.try(
+    configuration.package_manager(project_configuration)
+    |> map_configuration_error("read package-manager override"),
+  )
+  case override {
+    option.Some(name) ->
+      name
+      |> parse_package_manager
+      |> result.map(package_manager_name)
+    option.None ->
+      Ok(package_manager_name(detect_package_manager_from_lockfile()))
+  }
 }
 
 fn parse_package_manager(name: String) -> Result(PackageManager, CommandError) {
@@ -198,9 +248,25 @@ fn detect_package_manager_from_lockfile() -> PackageManager {
   }
 }
 
-fn read_experimental_native_mode() -> Result(Bool, CommandError) {
-  read_experimental_native_mode_raw()
-  |> map_raw_error("read compatibility mode")
+fn read_configuration(
+  operation: String,
+) -> Result(configuration.Configuration, CommandError) {
+  configuration.read()
+  |> map_configuration_error(operation)
+}
+
+fn read_compatibility(
+  project_configuration: configuration.Configuration,
+) -> Result(configuration.Compatibility, CommandError) {
+  configuration.compatibility(project_configuration)
+  |> map_configuration_error("read compatibility mode")
+}
+
+fn read_bindings(
+  project_configuration: configuration.Configuration,
+) -> Result(List(#(String, List(String))), CommandError) {
+  configuration.bindings(project_configuration)
+  |> map_configuration_error("read binding configuration")
 }
 
 fn map_raw_error(
@@ -216,6 +282,19 @@ fn map_raw_error(
   })
 }
 
+fn map_configuration_error(
+  configuration_result: Result(value, configuration.ConfigurationError),
+  operation: String,
+) -> Result(value, CommandError) {
+  configuration_result
+  |> result.map_error(fn(error) {
+    CommandFailed(
+      operation: operation,
+      reason: configuration.error_message(error),
+    )
+  })
+}
+
 // -- FFI --
 @external(javascript, "./cmd_ffi.mjs", "exec")
 fn exec_raw(command command: String) -> Result(Nil, RawCommandError)
@@ -223,20 +302,22 @@ fn exec_raw(command command: String) -> Result(Nil, RawCommandError)
 @external(javascript, "./cmd_ffi.mjs", "file_exists")
 fn file_exists(path: String) -> Bool
 
-@external(javascript, "./cmd_ffi.mjs", "read_pm_override")
-fn read_pm_override() -> Result(option.Option(String), RawCommandError)
-
-@external(javascript, "./cmd_ffi.mjs", "read_experimental_native_mode")
-fn read_experimental_native_mode_raw() -> Result(Bool, RawCommandError)
-
 @external(javascript, "./cmd_ffi.mjs", "run_with_bridge")
-fn run_with_bridge(command: String) -> Result(Nil, RawCommandError)
+fn run_with_bridge(
+  command: String,
+  bindings: List(#(String, List(String))),
+) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "run_dev_with_bridge")
-fn run_dev_with_bridge(build_command: String) -> Result(Nil, RawCommandError)
+fn run_dev_with_bridge(
+  build_command: String,
+  bindings: List(#(String, List(String))),
+) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "generate_bindings")
-fn generate_bindings_raw() -> Result(Nil, RawCommandError)
+fn generate_bindings_raw(
+  bindings: List(#(String, List(String))),
+) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "run_experimental_native")
 fn run_experimental_native_raw(
@@ -248,12 +329,14 @@ fn run_experimental_native_raw(
 fn run_experimental_native_with_bridge_raw(
   package_manager: String,
   args: String,
+  bindings: List(#(String, List(String))),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "run_experimental_native_dev_with_bridge")
 fn run_experimental_native_dev_with_bridge_raw(
   package_manager: String,
   args: String,
+  bindings: List(#(String, List(String))),
 ) -> Result(Nil, RawCommandError)
 
 @external(javascript, "./cmd_ffi.mjs", "command_error_message")
