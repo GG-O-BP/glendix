@@ -1,15 +1,16 @@
-// FFI adapter for the Mendix widget property TUI editor.
-import { Ok, Error as GleamError } from "../gleam.mjs";
+// Retained custom terminal FFI for the Mendix widget definition TUI editor.
+//
+// Issue #18 spike outcome: terminal size now delegates to the `term_size`
+// package (see terminal_control.gleam). The functions below have no reliable
+// cross-runtime ecosystem equivalent and are intentionally kept as custom FFI:
+//   - is_tty: runtime capability probe.
+//   - set_terminal_raw_mode / terminal_mode_error_message: raw-mode toggling
+//     that must resume stdin and report an exact failure reason.
+//   - poll_key_raw plus the stdin lifecycle and key decoding helpers:
+//     non-blocking one-shot key polling with UTF-8 aware decoding.
+import { Ok, Error as GleamError } from "../../../gleam.mjs";
 export function is_tty() {
   return !!process.stdin.isTTY;
-}
-export function exit_process() {
-  process.exit(0);
-}
-export function terminal_size() {
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
-  return [cols, rows];
 }
 export function set_terminal_raw_mode(enabled) {
   try {
@@ -42,8 +43,7 @@ function ensureStdin() {
   process.stdin.resume();
 }
 function onStdinData(data) {
-  const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "utf8");
-  const key = parseKeyBuf(buf);
+  const key = decode_key(data);
   if (keyResolver) {
     if (keyTimer) { clearTimeout(keyTimer); keyTimer = null; }
     const r = keyResolver;
@@ -53,7 +53,8 @@ function onStdinData(data) {
     keyQueue.push(key);
   }
 }
-function parseKeyBuf(buf) {
+export function decode_key(data) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "utf8");
   if (buf.length === 0) return [0, ""];
   const b = buf[0];
   if (b === 0x1b) {
