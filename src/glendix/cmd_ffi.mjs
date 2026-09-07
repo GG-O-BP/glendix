@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ok, Error as GleamError } from "../gleam.mjs";
+import { runFilteredCommandOrThrow } from "./command_ffi.mjs";
 
 const EXPERIMENTAL_NATIVE_RUNNER = "--glendix-experimental-native-runner";
 const EXPERIMENTAL_NATIVE_SHIM = "--glendix-experimental-native-shim";
@@ -29,62 +30,6 @@ function errorMessage(error) {
 
 export function command_error_message(error) {
   return errorMessage(error);
-}
-function filterErlangWarnings(stderr) {
-  const lines = stderr.split(/\r?\n/);
-  const result = [];
-  let skip = false;
-  let skipNextEmpty = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (!skip && lines[i] === "warning: Unused value") {
-      if (i + 1 < lines.length && lines[i + 1].includes("gleam_erlang")) {
-        skip = true;
-        continue;
-      }
-    }
-    if (skip) {
-      if (lines[i].includes("not needed")) {
-        skip = false;
-        skipNextEmpty = true;
-      }
-      continue;
-    }
-    if (skipNextEmpty) {
-      skipNextEmpty = false;
-      if (lines[i].trim() === "") continue;
-    }
-    result.push(lines[i]);
-  }
-  return result.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-function execGleamFiltered(command) {
-  const result = spawnSync(command, { shell: true, stdio: ["inherit", "pipe", "pipe"] });
-  if (result.stdout && result.stdout.length > 0) process.stdout.write(result.stdout);
-  if (result.stderr && result.stderr.length > 0) {
-    const filtered = filterErlangWarnings(result.stderr.toString());
-    if (filtered) process.stderr.write(filtered + "\n");
-  }
-  if (result.status !== 0) {
-    const err = new Error("Command failed: " + command);
-    err.status = result.status;
-    throw err;
-  }
-}
-function execOrThrow(command) {
-  if (command.startsWith("gleam ")) {
-    execGleamFiltered(command);
-  } else {
-    execSync(command, { stdio: "inherit", shell: true });
-  }
-}
-
-export function exec(command) {
-  try {
-    execOrThrow(command);
-    return new Ok(undefined);
-  } catch (error) {
-    return new GleamError(error);
-  }
 }
 export function file_exists(path) {
   return existsSync(path);
@@ -554,7 +499,7 @@ export function fail_process() {
 
 function setupBridge(bindings) {
   generateBindingsOrThrow(bindings);
-  execGleamFiltered("gleam build");
+  runFilteredCommandOrThrow("gleam build");
   const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
   const widgetName = pkg.widgetName;
   const widgets = pkg.widgets;
@@ -1174,7 +1119,7 @@ function runDevWithBridgeUsing(execBuild, bindings) {
     if (!hasChanges()) return;
     console.log("\n[glendix] 변경 감지 → 리빌드");
     try {
-      execGleamFiltered("gleam build");
+      runFilteredCommandOrThrow("gleam build");
       execBuild();
       console.log("[glendix] 빌드 완료");
     } catch (error) {

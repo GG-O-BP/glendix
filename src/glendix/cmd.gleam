@@ -5,6 +5,7 @@ import gleam/io
 import gleam/list
 import gleam/option
 import gleam/result
+import glendix/command
 import glendix/configuration
 
 /// Describes a JavaScript tooling failure.
@@ -15,8 +16,13 @@ pub type CommandError {
 
 /// Executes a command through the JavaScript process boundary.
 pub fn exec(command command: String) -> Result(Nil, CommandError) {
-  exec_raw(command)
-  |> map_raw_error("execute command")
+  command.run(command)
+  |> result.map_error(fn(error) {
+    CommandFailed(
+      operation: "execute command",
+      reason: command.error_message(error),
+    )
+  })
 }
 
 /// Detects the configured or lockfile-selected JavaScript package manager.
@@ -331,9 +337,6 @@ fn map_configuration_error(
 }
 
 // -- FFI --
-@external(javascript, "./cmd_ffi.mjs", "exec")
-fn exec_raw(command command: String) -> Result(Nil, RawCommandError)
-
 @external(javascript, "./cmd_ffi.mjs", "file_exists")
 fn file_exists(path: String) -> Bool
 

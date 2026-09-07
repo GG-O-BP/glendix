@@ -403,6 +403,23 @@ Projects that do not use Marketplace widgets omit the first two steps.
 | `gleam run -m glendix/lint_fix` | Apply lint fixes |
 | `gleam run -m glendix/release` | Run the release build |
 
+### Command execution boundary
+
+`glendix/cmd.exec` remains a synchronous shell-command API with inherited
+stdin, stdout, and stderr. Its generic process execution is implemented with
+`shellout`; a small platform adapter selects `/bin/sh -c` on Unix systems and
+`ComSpec /d /s /c` on Windows so existing command strings and shell operators
+keep their behavior. `plinth/node/child_process` is not used here because its
+current API does not provide synchronous completion, exit status, and standard
+stream options as a typed result.
+
+The custom command tooling retained in `cmd_ffi.mjs` is intentionally
+Glendix-specific: bridge generation and cleanup, the development watcher,
+experimental-native runtime setup, Node/npm compatibility shims, and
+Rollup/WebAssembly handling. Gleam build commands also retain a narrow filtered
+runner because `shellout` cannot separately capture and filter stderr while
+preserving the existing inherited-stream behavior.
+
 ## Breaking changes in 6.0.0
 
 `glendix/js/array` now delegates its conversions to `gleam/javascript/array`
