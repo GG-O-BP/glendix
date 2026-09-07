@@ -19,7 +19,7 @@ Glendix는 Marketplace나 브라우저 자동화를 구현하지 않는다.
 
 ```toml
 [dependencies]
-glendix = ">= 5.1.0 and < 6.0.0"
+glendix = ">= 6.0.0 and < 7.0.0"
 ```
 
 Mendix 클라이언트 값이나 MPK 컴포넌트가 필요할 때만 `mendraw`를 추가하고,
@@ -214,6 +214,15 @@ JavaScript 설정, 최종 MPK 빌드를 담당한다. Marketplace 위젯을 쓰�
 | `gleam run -m glendix/lint` | lint 검사 |
 | `gleam run -m glendix/lint_fix` | lint 수정 |
 | `gleam run -m glendix/release` | release 빌드 |
+
+## 6.0.0 호환성 변경
+
+`glendix/js/array`는 이제 변환을 `gleam/javascript/array`에 위임하며 수기
+JavaScript 어댑터를 더 이상 포함하지 않는다. `from_list`와 `to_list`는 함수
+이름·label·원소 순서 동작을 그대로 유지하므로 일반적인
+`list |> array.from_list |> array.to_list` 사용은 변경되지 않는다. 기존 opaque
+타입 `glendix/js/array.JsArray(element)`는 제거되었으므로 값의 타입은
+`gleam/javascript/array.Array(element)`로 표기한다.
 
 ## 개발
 

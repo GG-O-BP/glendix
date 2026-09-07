@@ -1,6 +1,7 @@
 //// Exercises Glendix pure domain logic and JavaScript FFI contracts.
 ////
 
+import gleam/javascript/array as javascript_array
 import gleam/javascript/promise
 import gleam/json
 import gleam/list
@@ -217,12 +218,23 @@ pub fn define_failed_file_write_contract_test() -> Nil {
   }
 }
 
-/// Verifies the JavaScript array FFI preserves element order.
-pub fn javascript_array_round_trip_test() -> Nil {
-  [1, 2, 3]
+/// Verifies Int list round trips preserve empty, singleton, and ordered values.
+pub fn javascript_array_int_round_trip_test() -> Nil {
+  let examples = [[], [1], [1, 2, 3]]
+  list.each(examples, fn(example) {
+    let standard_array: javascript_array.Array(Int) = array.from_list(example)
+    standard_array
+    |> array.to_list
+    |> should.equal(example)
+  })
+}
+
+/// Verifies the conversion is generic over the element type.
+pub fn javascript_array_string_round_trip_test() -> Nil {
+  ["glendix", "js", "array"]
   |> array.from_list
   |> array.to_list
-  |> should.equal([1, 2, 3])
+  |> should.equal(["glendix", "js", "array"])
 }
 
 /// Verifies the JavaScript JSON FFI parses and serializes typed JSON values.

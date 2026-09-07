@@ -21,7 +21,7 @@ Glendix does not implement Marketplace access or browser automation.
 
 ```toml
 [dependencies]
-glendix = ">= 5.1.0 and < 6.0.0"
+glendix = ">= 6.0.0 and < 7.0.0"
 ```
 
 Add `mendraw` only when the project uses Mendix client values or installed MPK
@@ -281,6 +281,15 @@ Projects that do not use Marketplace widgets omit the first two steps.
 | `gleam run -m glendix/lint` | Run lint checks |
 | `gleam run -m glendix/lint_fix` | Apply lint fixes |
 | `gleam run -m glendix/release` | Run the release build |
+
+## Breaking changes in 6.0.0
+
+`glendix/js/array` now delegates its conversions to `gleam/javascript/array`
+and no longer ships a handwritten JavaScript adapter. The `from_list` and
+`to_list` functions keep their names, labels, and element-order behavior, so the
+common `list |> array.from_list |> array.to_list` usage is unchanged. The former
+opaque `glendix/js/array.JsArray(element)` type is removed; annotate values with
+`gleam/javascript/array.Array(element)` instead.
 
 ## Development
 
