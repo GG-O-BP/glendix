@@ -235,3 +235,23 @@ export function element_prop_json(element, key) {
 export function element_prop_is(element, key, expected) {
   return element.props[key] === expected;
 }
+
+export function new_promise_callback_counter() {
+  return { count: 0 };
+}
+
+export function increment_promise_callback_counter(counter) {
+  counter.count += 1;
+}
+
+export function promise_callback_count(counter) {
+  return counter.count;
+}
+
+export function promise_rejection_is_error(rejection) {
+  return rejection instanceof Error;
+}
+
+export function promise_rejection_message(rejection) {
+  return rejection instanceof Error ? rejection.message : String(rejection);
+}

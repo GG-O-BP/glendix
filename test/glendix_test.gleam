@@ -1,6 +1,7 @@
 //// Exercises Glendix pure domain logic and JavaScript FFI contracts.
 ////
 
+import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/string
@@ -15,6 +16,7 @@ import glendix/js/array
 import glendix/js/environment
 import glendix/js/json as javascript_json
 import glendix/js/object
+import glendix/js/promise as glendix_promise
 import glendix/lustre
 import lustre/attribute
 import lustre/element
@@ -338,7 +340,92 @@ pub fn binding_object_prop_preserves_object_test() -> Nil {
   |> should.equal("{\"theme\":\"dark\",\"locale\":\"en\"}")
 }
 
+/// Verifies resolve fulfills a Promise with the supplied value.
+pub fn promise_resolve_yields_value_test() -> promise.Promise(Nil) {
+  glendix_promise.resolve("glendix")
+  |> glendix_promise.map(with: fn(value) { should.equal(value, "glendix") })
+}
+
+/// Verifies map transforms a fulfilled value without extra callbacks.
+pub fn promise_map_transforms_value_test() -> promise.Promise(Nil) {
+  glendix_promise.resolve(3)
+  |> glendix_promise.map(with: fn(value) { value * 2 })
+  |> glendix_promise.map(with: fn(value) { should.equal(value, 6) })
+}
+
+/// Verifies then_ chains a Promise-returning callback and flattens the result.
+pub fn promise_then_chains_promise_test() -> promise.Promise(Nil) {
+  glendix_promise.resolve(10)
+  |> glendix_promise.then_(with: fn(value) {
+    glendix_promise.resolve(value + 5)
+  })
+  |> glendix_promise.map(with: fn(value) { should.equal(value, 15) })
+}
+
+/// Verifies all resolves to a Gleam list in input order, not settle order.
+pub fn promise_all_preserves_input_order_test() -> promise.Promise(Nil) {
+  glendix_promise.all(promises: [
+    promise.wait(30) |> promise.map(fn(_) { 1 }),
+    glendix_promise.resolve(2),
+    promise.wait(10) |> promise.map(fn(_) { 3 }),
+  ])
+  |> glendix_promise.map(with: fn(values) { should.equal(values, [1, 2, 3]) })
+}
+
+/// Verifies race settles with the first fulfilled Promise.
+pub fn promise_race_returns_first_fulfilled_test() -> promise.Promise(Nil) {
+  glendix_promise.race(promises: [
+    promise.wait(50) |> promise.map(fn(_) { "slow" }),
+    glendix_promise.resolve("fast"),
+  ])
+  |> glendix_promise.map(with: fn(winner) { should.equal(winner, "fast") })
+}
+
+/// Verifies race preserves first-settled behavior when the winner rejects.
+pub fn promise_race_first_rejection_wins_test() -> promise.Promise(Nil) {
+  glendix_promise.race(promises: [
+    glendix_promise.reject("first"),
+    promise.wait(50) |> promise.map(fn(_) { "slow" }),
+  ])
+  |> glendix_promise.catch_(with: fn(rejection) {
+    glendix_promise.resolve(promise_rejection_message(rejection))
+  })
+  |> glendix_promise.map(with: fn(message) { should.equal(message, "first") })
+}
+
+/// Verifies reject surfaces its string reason as a JavaScript Error value.
+pub fn promise_reject_surfaces_error_test() -> promise.Promise(Nil) {
+  glendix_promise.reject("boom")
+  |> glendix_promise.catch_(with: fn(rejection) {
+    should.be_true(promise_rejection_is_error(rejection))
+    glendix_promise.resolve(promise_rejection_message(rejection))
+  })
+  |> glendix_promise.map(with: fn(message) { should.equal(message, "boom") })
+}
+
+/// Verifies catch_ leaves a fulfilled Promise untouched and unrecovered.
+pub fn promise_catch_passes_through_fulfilled_test() -> promise.Promise(Nil) {
+  glendix_promise.resolve("ok")
+  |> glendix_promise.catch_(with: fn(_rejection) {
+    glendix_promise.resolve("recovered")
+  })
+  |> glendix_promise.map(with: fn(value) { should.equal(value, "ok") })
+}
+
+/// Verifies await_ runs its callback exactly once and does not block.
+pub fn promise_await_runs_callback_once_test() -> promise.Promise(Nil) {
+  let counter = new_promise_callback_counter()
+  glendix_promise.await_(glendix_promise.resolve(Nil), then: fn(_value) {
+    increment_promise_callback_counter(counter)
+  })
+  promise.wait(0)
+  |> promise.map(fn(_) { should.equal(promise_callback_count(counter), 1) })
+}
+
 // -- FFI --
+/// Represents a mutable count of one-shot Promise callback invocations.
+type PromiseCallbackCounter
+
 @external(javascript, "./glendix_test_ffi.mjs", "clone_lustre_tree")
 fn clone_lustre_tree(tree: element.Element(message)) -> element.Element(message)
 
@@ -393,3 +480,22 @@ fn element_prop_is(
   key key: String,
   expected expected: object.JsObject,
 ) -> Bool
+
+@external(javascript, "./glendix_test_ffi.mjs", "new_promise_callback_counter")
+fn new_promise_callback_counter() -> PromiseCallbackCounter
+
+@external(javascript, "./glendix_test_ffi.mjs", "increment_promise_callback_counter")
+fn increment_promise_callback_counter(counter: PromiseCallbackCounter) -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "promise_callback_count")
+fn promise_callback_count(counter: PromiseCallbackCounter) -> Int
+
+@external(javascript, "./glendix_test_ffi.mjs", "promise_rejection_is_error")
+fn promise_rejection_is_error(
+  rejection: glendix_promise.PromiseRejection,
+) -> Bool
+
+@external(javascript, "./glendix_test_ffi.mjs", "promise_rejection_message")
+fn promise_rejection_message(
+  rejection: glendix_promise.PromiseRejection,
+) -> String
