@@ -16,10 +16,8 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Some, None } from "../../gleam_stdlib/gleam/option.mjs";
 import { Ok, Error as GleamError } from "../gleam.mjs";
 
-const EXPERIMENTAL_NATIVE_MODE = "experimental-native";
 const EXPERIMENTAL_NATIVE_RUNNER = "--glendix-experimental-native-runner";
 const EXPERIMENTAL_NATIVE_SHIM = "--glendix-experimental-native-shim";
 const PWT_NODE_VERSION = "v22.18.0";
@@ -31,84 +29,6 @@ function errorMessage(error) {
 
 export function command_error_message(error) {
   return errorMessage(error);
-}
-function parseTomlValue(raw) {
-  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
-  if (raw.startsWith('[') && raw.endsWith(']')) {
-    const inner = raw.slice(1, -1).trim();
-    if (inner === "") return [];
-    return inner.split(',').map(s => {
-      s = s.trim();
-      if (s.startsWith('"') && s.endsWith('"')) return s.slice(1, -1);
-      return s;
-    });
-  }
-  const num = parseInt(raw, 10);
-  if (!isNaN(num) && String(num) === raw) return num;
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return raw;
-}
-function parseGlendixToml() {
-  if (!existsSync("gleam.toml")) return null;
-  const content = readFileSync("gleam.toml", "utf-8");
-  const lines = content.split(/\r?\n/);
-  const result = { pm: null, compatibility: null, bindings: {} };
-  let currentSection = null;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) continue;
-    const sectionMatch = trimmed.match(/^\[(.+)\]$/);
-    if (sectionMatch) {
-      const path = sectionMatch[1];
-      if (path === "tools.glendix") currentSection = "root";
-      else if (path === "tools.glendix.bindings") currentSection = "bindings";
-      else currentSection = null;
-      continue;
-    }
-    if (!currentSection) continue;
-    const kvMatch = trimmed.match(/^("(?:[^"\\]|\\.)*"|[A-Za-z0-9_-]+)\s*=\s*(.+)$/);
-    if (!kvMatch) continue;
-    let key = kvMatch[1].trim();
-    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
-    const value = parseTomlValue(kvMatch[2].trim());
-    if (currentSection === "root") {
-      if (key === "pm") result.pm = value;
-      if (key === "compatibility") result.compatibility = value;
-    } else if (currentSection === "bindings") {
-      result.bindings[key] = value;
-    }
-  }
-  return result;
-}
-function readPmOverride() {
-  const config = parseGlendixToml();
-  return config?.pm ? new Some(config.pm) : new None();
-}
-
-export function read_pm_override() {
-  try {
-    return new Ok(readPmOverride());
-  } catch (error) {
-    return new GleamError(error);
-  }
-}
-
-export function read_experimental_native_mode() {
-  try {
-    const compatibility = parseGlendixToml()?.compatibility;
-    if (compatibility === null || compatibility === undefined) {
-      return new Ok(false);
-    }
-    if (compatibility !== EXPERIMENTAL_NATIVE_MODE) {
-      throw new Error(
-        `Unsupported [tools.glendix].compatibility value: ${compatibility}`,
-      );
-    }
-    return new Ok(true);
-  } catch (error) {
-    return new GleamError(error);
-  }
 }
 function filterErlangWarnings(stderr) {
   const lines = stderr.split(/\r?\n/);
@@ -169,14 +89,21 @@ export function exec(command) {
 export function file_exists(path) {
   return existsSync(path);
 }
-function generateBindingsOrThrow() {
-  const tomlConfig = parseGlendixToml();
-  if (!tomlConfig?.bindings || Object.keys(tomlConfig.bindings).length === 0) {
+function configuredBindings(bindings) {
+  return bindings.toArray().map(([moduleName, components]) => [
+    moduleName,
+    components.toArray(),
+  ]);
+}
+
+function generateBindingsOrThrow(bindings) {
+  const configuredEntries = configuredBindings(bindings);
+  if (configuredEntries.length === 0) {
     return;
   }
   const config = {};
-  for (const [pkg, components] of Object.entries(tomlConfig.bindings)) {
-    config[pkg] = { components: Array.isArray(components) ? components : [components] };
+  for (const [moduleName, components] of configuredEntries) {
+    config[moduleName] = { components };
   }
   const imports = [];
   const entries = [];
@@ -258,9 +185,9 @@ function generateBindingsOrThrow() {
   }
 }
 
-export function generate_bindings() {
+export function generate_bindings(bindings) {
   try {
-    generateBindingsOrThrow();
+    generateBindingsOrThrow(bindings);
     return new Ok(undefined);
   } catch (error) {
     return new GleamError(error);
@@ -561,8 +488,8 @@ export function fail_process() {
   process.exitCode = 1;
 }
 
-function setupBridge() {
-  generateBindingsOrThrow();
+function setupBridge(bindings) {
+  generateBindingsOrThrow(bindings);
   execGleamFiltered("gleam build");
   const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
   const widgetName = pkg.widgetName;
@@ -1068,8 +995,8 @@ function startExperimentalNativeRunner(toolPath, args) {
   require(toolPath);
 }
 
-function runWithBridgeOrThrow(command) {
-  const { cleanup } = setupBridge();
+function runWithBridgeOrThrow(command, bindings) {
+  const { cleanup } = setupBridge(bindings);
   process.on("SIGINT", () => { cleanup(); process.exit(130); });
   try {
     const result = spawnSync(command, { shell: true, stdio: ["inherit", "pipe", "pipe"] });
@@ -1088,9 +1015,9 @@ function runWithBridgeOrThrow(command) {
   }
 }
 
-export function run_with_bridge(command) {
+export function run_with_bridge(command, bindings) {
   try {
-    runWithBridgeOrThrow(command);
+    runWithBridgeOrThrow(command, bindings);
     return new Ok(undefined);
   } catch (error) {
     return new GleamError(error);
@@ -1106,8 +1033,12 @@ export function run_experimental_native(packageManager, args) {
   }
 }
 
-export function run_experimental_native_with_bridge(packageManager, args) {
-  const { cleanup } = setupBridge();
+export function run_experimental_native_with_bridge(
+  packageManager,
+  args,
+  bindings,
+) {
+  const { cleanup } = setupBridge(bindings);
   process.on("SIGINT", () => { cleanup(); process.exit(130); });
   try {
     runExperimentalNativeProcessOrThrow(packageManager, args);
@@ -1119,8 +1050,8 @@ export function run_experimental_native_with_bridge(packageManager, args) {
   }
 }
 
-function runDevWithBridgeUsing(execBuild) {
-  const { cleanup } = setupBridge();
+function runDevWithBridgeUsing(execBuild, bindings) {
+  const { cleanup } = setupBridge(bindings);
   console.log("[glendix] 초기 빌드 시작\n");
   try {
     execBuild();
@@ -1193,7 +1124,7 @@ function runDevWithBridgeUsing(execBuild) {
   });
 }
 
-function runDevWithBridgeOrThrow(buildCommand) {
+function runDevWithBridgeOrThrow(buildCommand, bindings) {
   runDevWithBridgeUsing(() => {
     const result = spawnSync(buildCommand, {
       shell: true,
@@ -1202,23 +1133,27 @@ function runDevWithBridgeOrThrow(buildCommand) {
     writeProcessOutput(result);
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error("Build failed");
-  });
+  }, bindings);
 }
 
-export function run_dev_with_bridge(buildCommand) {
+export function run_dev_with_bridge(buildCommand, bindings) {
   try {
-    runDevWithBridgeOrThrow(buildCommand);
+    runDevWithBridgeOrThrow(buildCommand, bindings);
     return new Ok(undefined);
   } catch (error) {
     return new GleamError(error);
   }
 }
 
-export function run_experimental_native_dev_with_bridge(packageManager, args) {
+export function run_experimental_native_dev_with_bridge(
+  packageManager,
+  args,
+  bindings,
+) {
   try {
     runDevWithBridgeUsing(() => {
       runExperimentalNativeProcessOrThrow(packageManager, args);
-    });
+    }, bindings);
     return new Ok(undefined);
   } catch (error) {
     return new GleamError(error);

@@ -141,6 +141,13 @@ component boundary も提供します。評価済みの `use_tea` result を
 recharts = ["PieChart", "Pie"]
 ```
 
+Glendix はこの設定を標準 TOML として解析します。パッケージマネージャー、
+互換モード、モジュール名、コンポーネント名は引用符付き TOML 文字列にし、
+各バインディング値は 1 個の文字列または文字列配列にする必要があります。
+不正な TOML、重複キー、引用符のない文字列風の値は部分的に解釈せずエラーに
+なります。`gleam.toml` または Glendix テーブルがない場合は、従来どおり
+override とバインディングが未設定として扱われます。
+
 ```gleam
 import gleam/result
 import glendix/binding
