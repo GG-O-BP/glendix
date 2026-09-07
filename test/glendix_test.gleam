@@ -23,6 +23,7 @@ import lustre/element
 import lustre/element/html
 import redraw
 import redraw/dom/attribute as redraw_attribute
+import redraw/dom/html as redraw_html
 
 /// Runs the Glendix test suite.
 pub fn main() -> Nil {
@@ -248,6 +249,20 @@ pub fn lustre_foreign_constructor_render_contract_test() -> Nil {
   |> should.equal("section#foreign-root|h2|Foreign Lustre")
 }
 
+/// Verifies keyed hosts preserve state, receive fresh props, and remount once.
+pub fn lustre_keyed_host_lifecycle_contract_test() -> Nil {
+  keyed_host_lifecycle_summary(lustre.keyed_host, lifecycle_application)
+  |> should.equal(
+    "initial=1/0:first;unchanged=1/0:first;changed=2/1:replacement;props=first,fresh,replacement;cleanup=2",
+  )
+}
+
+/// Verifies an empty key is stable and nested Redraw embedding still renders.
+pub fn lustre_keyed_host_nested_embedding_contract_test() -> Nil {
+  keyed_host_nested_summary(lustre.keyed_host, nested_application)
+  |> should.equal("section|strong|nested")
+}
+
 /// Verifies a dark preference maps to the dark and resolved-dark schemes.
 pub fn environment_dark_preference_is_dark_test() -> Nil {
   stub_prefers_dark()
@@ -422,10 +437,27 @@ pub fn promise_await_runs_callback_once_test() -> promise.Promise(Nil) {
   |> promise.map(fn(_) { should.equal(promise_callback_count(counter), 1) })
 }
 
-// -- FFI --
 /// Represents a mutable count of one-shot Promise callback invocations.
 type PromiseCallbackCounter
 
+fn lifecycle_application(props: String) -> redraw.Element {
+  record_keyed_host_props(props)
+  track_keyed_host_lifecycle()
+  lustre.use_simple(props, fn(model, _message) { model }, fn(model) {
+    html.div([], [html.text(model)])
+  })
+}
+
+fn nested_application(_props: Nil) -> redraw.Element {
+  lustre.use_simple(Nil, fn(model, _message) { model }, fn(_model) {
+    html.section([], [
+      redraw_html.strong([], [redraw_html.text("nested")])
+      |> lustre.embed,
+    ])
+  })
+}
+
+// -- FFI --
 @external(javascript, "./glendix_test_ffi.mjs", "clone_lustre_tree")
 fn clone_lustre_tree(tree: element.Element(message)) -> element.Element(message)
 
@@ -499,3 +531,21 @@ fn promise_rejection_is_error(
 fn promise_rejection_message(
   rejection: glendix_promise.PromiseRejection,
 ) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "keyed_host_lifecycle_summary")
+fn keyed_host_lifecycle_summary(
+  keyed_host: fn(String, String, fn(String) -> redraw.Element) -> redraw.Element,
+  render: fn(String) -> redraw.Element,
+) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "keyed_host_nested_summary")
+fn keyed_host_nested_summary(
+  keyed_host: fn(String, Nil, fn(Nil) -> redraw.Element) -> redraw.Element,
+  render: fn(Nil) -> redraw.Element,
+) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "record_keyed_host_props")
+fn record_keyed_host_props(props: String) -> Nil
+
+@external(javascript, "./glendix_test_ffi.mjs", "track_keyed_host_lifecycle")
+fn track_keyed_host_lifecycle() -> Nil

@@ -64,6 +64,43 @@ dependency module は `gleam run -m glendix/build --runtime bun` または
 `--runtime deno` のように一致する runtime を明示し、npm/Yarn/pnpm では
 `--runtime node` を使用します。
 
+## Lustre ブリッジ
+
+`glendix/lustre` は標準的な Lustre の `Model`・`update`・`view` を
+Redraw/React element に変換します。`use_tea`、`use_simple`、`render`、
+`embed`、`keyed_host` を提供します。
+
+### Props による再マウント
+
+型付き props から計算した revision が変わったときに Lustre application 全体を
+再起動する必要がある場合は、`keyed_host` を使用します。
+
+```gleam
+pub fn component(props: Props) -> redraw.Element {
+  glendix_lustre.keyed_host(
+    key: props_revision(props),
+    props: props,
+    render: fn(current_props) {
+      glendix_lustre.use_tea(
+        init(current_props),
+        update,
+        view,
+      )
+    },
+  )
+}
+```
+
+`props_revision` は application の型付き state から pure Gleam で導出します。
+key が同じなら既存 application instance を維持しながら render callback に最新の
+props を渡し、key が変われば以前の host を破棄して再マウントします。
+
+`keyed_host` は Redraw の React key support を利用しつつ、Lustre hook を所有する
+component boundary も提供します。評価済みの `use_tea` result を
+`redraw.keyed` で囲むだけでは、この boundary は作られません。
+`lustre/element/keyed` は実行中の Lustre virtual DOM 内の child だけを制御するため、
+外側の React host を再マウントできません。
+
 ## 外部 npm React コンポーネント
 
 ```toml

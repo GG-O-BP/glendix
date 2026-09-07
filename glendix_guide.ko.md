@@ -28,7 +28,34 @@ Mendix 클라이언트 값이나 MPK 컴포넌트가 필요할 때만 `mendraw`�
 ## Lustre 브리지
 
 `glendix/lustre`는 표준 Lustre `Model`/`update`/`view`를 Redraw/React element로
-변환한다. `use_tea`, `use_simple`, `render`, `embed`를 제공한다.
+변환한다. `use_tea`, `use_simple`, `render`, `embed`, `keyed_host`를 제공한다.
+
+### Props 기반 재마운트
+
+typed props에서 계산한 revision이 바뀔 때 Lustre 애플리케이션 전체를 다시
+시작해야 한다면 `keyed_host`를 사용한다.
+
+```gleam
+pub fn component(props: Props) -> redraw.Element {
+  glendix_lustre.keyed_host(
+    key: props_revision(props),
+    props: props,
+    render: fn(current_props) {
+      glendix_lustre.use_tea(
+        init(current_props),
+        update,
+        view,
+      )
+    },
+  )
+}
+```
+
+`props_revision`은 애플리케이션의 typed 상태로부터 순수 Gleam으로 계산한다. 키가
+같으면 최신 props를 callback에 전달하면서 애플리케이션을 유지하고, 키가 바뀌면
+재마운트한다. 평가가 끝난 `use_tea` 결과에 직접 key를 붙이는 것만으로는 hook을
+소유하는 React component 경계를 만들 수 없으며, `lustre/element/keyed`는 실행 중인
+Lustre tree 내부 자식에만 영향을 준다.
 
 ## 외부 npm React 컴포넌트
 

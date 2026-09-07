@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { useEffect } from "react";
+import TestRenderer, { act } from "react-test-renderer";
 import { toList } from "./gleam.mjs";
 import {
   create_wasm_asset_plugin,
@@ -254,4 +256,93 @@ export function promise_rejection_is_error(rejection) {
 
 export function promise_rejection_message(rejection) {
   return rejection instanceof Error ? rejection.message : String(rejection);
+}
+
+let keyedHostMountCount = 0;
+let keyedHostUnmountCount = 0;
+let keyedHostProps = [];
+
+export function record_keyed_host_props(props) {
+  keyedHostProps.push(props);
+}
+
+export function track_keyed_host_lifecycle() {
+  useEffect(() => {
+    keyedHostMountCount += 1;
+    return () => {
+      keyedHostUnmountCount += 1;
+    };
+  }, []);
+}
+
+function rendered_text(renderer) {
+  const json = renderer.toJSON();
+  if (!json || Array.isArray(json)) return "";
+  return json.children?.join("") ?? "";
+}
+
+export function keyed_host_lifecycle_summary(keyedHost, render) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  keyedHostMountCount = 0;
+  keyedHostUnmountCount = 0;
+  keyedHostProps = [];
+
+  let renderer;
+  act(() => {
+    renderer = TestRenderer.create(keyedHost("", "first", render));
+  });
+  const initial =
+    `${keyedHostMountCount}/${keyedHostUnmountCount}:${rendered_text(renderer)}`;
+
+  act(() => {
+    renderer.update(keyedHost("", "fresh", render));
+  });
+  const unchanged =
+    `${keyedHostMountCount}/${keyedHostUnmountCount}:${rendered_text(renderer)}`;
+
+  act(() => {
+    renderer.update(keyedHost("replacement", "replacement", render));
+  });
+  const changed =
+    `${keyedHostMountCount}/${keyedHostUnmountCount}:${rendered_text(renderer)}`;
+
+  act(() => {
+    renderer.unmount();
+  });
+
+  return [
+    `initial=${initial}`,
+    `unchanged=${unchanged}`,
+    `changed=${changed}`,
+    `props=${keyedHostProps.join(",")}`,
+    `cleanup=${keyedHostUnmountCount}`,
+  ].join(";");
+}
+
+function collect_rendered_summary(node, parts) {
+  if (node === null || node === undefined || node === false) return;
+  if (typeof node === "string") {
+    parts.push(node);
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) collect_rendered_summary(child, parts);
+    return;
+  }
+  if (typeof node.type === "string") parts.push(node.type);
+  collect_rendered_summary(node.children, parts);
+}
+
+export function keyed_host_nested_summary(keyedHost, render) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let renderer;
+  act(() => {
+    renderer = TestRenderer.create(keyedHost("", undefined, render));
+  });
+  const parts = [];
+  collect_rendered_summary(renderer.toJSON(), parts);
+  act(() => {
+    renderer.unmount();
+  });
+  return parts.join("|");
 }

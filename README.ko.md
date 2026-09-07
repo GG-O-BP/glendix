@@ -65,7 +65,37 @@ Gleam 명령에 필요한 권한과 설치 시 해당 script 허용이 필요하
 ## Lustre 브리지
 
 `glendix/lustre`는 표준 Lustre `Model`/`update`/`view`를 Redraw/React element로
-변환한다. `use_tea`, `use_simple`, `render`, `embed`를 제공한다.
+변환한다. `use_tea`, `use_simple`, `render`, `embed`, `keyed_host`를 제공한다.
+
+### Props 기반 재마운트
+
+typed props에서 계산한 revision이 바뀔 때 Lustre 애플리케이션 전체를 다시
+시작해야 한다면 `keyed_host`를 사용한다.
+
+```gleam
+pub fn component(props: Props) -> redraw.Element {
+  glendix_lustre.keyed_host(
+    key: props_revision(props),
+    props: props,
+    render: fn(current_props) {
+      glendix_lustre.use_tea(
+        init(current_props),
+        update,
+        view,
+      )
+    },
+  )
+}
+```
+
+`props_revision`은 애플리케이션의 typed 상태로부터 순수 Gleam으로 계산한다. 키가
+같으면 기존 애플리케이션 인스턴스를 유지하면서 render callback에는 최신 props를
+전달하고, 키가 바뀌면 기존 host를 정리하고 새로 마운트한다.
+
+`keyed_host`는 Redraw의 React key 기능을 사용하면서 Lustre hook을 소유하는
+component 경계도 만든다. 이미 평가된 `use_tea` 결과를 `redraw.keyed`로 감싸는
+것만으로는 이 경계가 생기지 않는다. `lustre/element/keyed`는 실행 중인 Lustre
+가상 DOM 내부 자식만 제어하므로 바깥 React host를 재마운트할 수 없다.
 
 ## 외부 npm React 컴포넌트
 

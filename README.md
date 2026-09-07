@@ -118,6 +118,38 @@ pub fn component() -> redraw.Element {
 }
 ```
 
+### Props-driven remounts
+
+Use `keyed_host` when a typed props-derived revision must restart the entire
+Lustre application:
+
+```gleam
+pub fn component(props: Props) -> redraw.Element {
+  glendix_lustre.keyed_host(
+    key: props_revision(props),
+    props: props,
+    render: fn(current_props) {
+      glendix_lustre.use_tea(
+        init(current_props),
+        update,
+        view,
+      )
+    },
+  )
+}
+```
+
+Derive `props_revision` in pure Gleam from the application's typed state. An
+unchanged key preserves the existing application while still passing fresh
+props to the render callback; a changed key disposes and remounts the hosted
+application.
+
+`keyed_host` uses Redraw's React key support but also supplies the component
+boundary that owns the Lustre hooks. Calling `redraw.keyed` around an already
+evaluated `use_tea` result does not create that boundary.
+`lustre/element/keyed` only controls children inside the running Lustre virtual
+DOM and cannot remount the outer React host.
+
 ## External npm React components
 
 Configure exports in `gleam.toml`:
