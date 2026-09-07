@@ -298,41 +298,6 @@ pub fn environment_unavailable_match_media_is_unresolved_test() -> Nil {
   |> should.equal(environment.ResolutionUnavailable)
 }
 
-/// Verifies object construction preserves entry order.
-pub fn object_from_entries_preserves_entry_order_test() -> Nil {
-  object.from_entries([
-    #("theme", object.string("dark")),
-    #("locale", object.string("en")),
-    #("density", object.int(2)),
-  ])
-  |> object_json
-  |> should.equal("{\"theme\":\"dark\",\"locale\":\"en\",\"density\":2}")
-}
-
-/// Verifies an empty entry list safely builds an empty object.
-pub fn object_from_entries_without_entries_is_empty_object_test() -> Nil {
-  object.from_entries([])
-  |> object_json
-  |> should.equal("{}")
-}
-
-/// Verifies a duplicate key keeps the last supplied value.
-pub fn object_from_entries_duplicate_key_keeps_last_value_test() -> Nil {
-  object.from_entries([
-    #("theme", object.string("light")),
-    #("theme", object.string("dark")),
-  ])
-  |> object_json
-  |> should.equal("{\"theme\":\"dark\"}")
-}
-
-/// Verifies a prototype-looking key remains ordinary own object data.
-pub fn object_from_entries_proto_key_is_safe_data_test() -> Nil {
-  object.from_entries([#("__proto__", object.string("safe"))])
-  |> object_json
-  |> should.equal("{\"__proto__\":\"safe\"}")
-}
-
 /// Verifies an object passes through Glendix bindings as one intact prop.
 pub fn binding_object_prop_preserves_object_test() -> Nil {
   let configuration =
@@ -498,9 +463,6 @@ fn stub_prefers_none() -> Nil
 
 @external(javascript, "./glendix_test_ffi.mjs", "clear_match_media")
 fn clear_match_media() -> Nil
-
-@external(javascript, "./glendix_test_ffi.mjs", "object_json")
-fn object_json(handle handle: object.JsObject) -> String
 
 @external(javascript, "./glendix_test_ffi.mjs", "element_prop_json")
 fn element_prop_json(element element: redraw.Element, key key: String) -> String

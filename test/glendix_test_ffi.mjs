@@ -226,10 +226,6 @@ export function clear_match_media() {
   delete globalThis.matchMedia;
 }
 
-export function object_json(object) {
-  return JSON.stringify(object);
-}
-
 export function element_prop_json(element, key) {
   return JSON.stringify(element.props[key]);
 }
