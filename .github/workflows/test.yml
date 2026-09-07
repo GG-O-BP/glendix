@@ -34,8 +34,10 @@ jobs:
         working-directory: glendix
         run: |
           gleam deps download
+          python3 scripts/check-ffi-contracts.py
           gleam format --check
           gleam check
           gleam build --warnings-as-errors
           gleam docs build
           gleam test --runtime bun
+          bun test test/editor_config_ffi_test.mjs

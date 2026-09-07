@@ -342,13 +342,18 @@ prototype pollution을 일으키지 않는 `Object.fromEntries` 동작을 유지
 
 ## 개발
 
+유지되는 FFI, package adapter, test-only external의 전체 계약은
+[Glendix FFI 경계 레퍼런스](FFI_BOUNDARIES.md)를 참고한다.
+
 ```sh
 gleam deps download
+python3 scripts/check-ffi-contracts.py
 gleam format --check
 gleam check
 gleam build --warnings-as-errors
 gleam docs build
 gleam test --runtime bun
+bun test test/editor_config_ffi_test.mjs
 ```
 
 ## 라이선스

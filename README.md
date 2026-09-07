@@ -442,13 +442,18 @@ prototype-pollution-safe `Object.fromEntries` behavior for keys such as
 
 ## Development
 
+See [the Glendix FFI boundary reference](FFI_BOUNDARIES.md) for every retained,
+package-adapted, and test-only external contract.
+
 ```sh
 gleam deps download
+python3 scripts/check-ffi-contracts.py
 gleam format --check
 gleam check
 gleam build --warnings-as-errors
 gleam docs build
 gleam test --runtime bun
+bun test test/editor_config_ffi_test.mjs
 ```
 
 ## License
