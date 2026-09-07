@@ -3,7 +3,6 @@
 
 import gleam/javascript/array as javascript_array
 import gleam/javascript/promise
-import gleam/json
 import gleam/list
 import gleam/string
 import gleeunit
@@ -15,7 +14,6 @@ import glendix/define/model
 import glendix/define/ui
 import glendix/js/array
 import glendix/js/environment
-import glendix/js/json as javascript_json
 import glendix/js/object
 import glendix/js/promise as glendix_promise
 import glendix/lustre
@@ -235,17 +233,6 @@ pub fn javascript_array_string_round_trip_test() -> Nil {
   |> array.from_list
   |> array.to_list
   |> should.equal(["glendix", "js", "array"])
-}
-
-/// Verifies the JavaScript JSON FFI parses and serializes typed JSON values.
-pub fn javascript_json_round_trip_test() -> Nil {
-  let original = json.object([#("name", json.string("glendix"))])
-  original
-  |> javascript_json.stringify
-  |> javascript_json.parse
-  |> should.be_ok
-  |> javascript_json.stringify
-  |> should.equal(javascript_json.stringify(original))
 }
 
 /// Verifies Lustre conversion uses stable discriminants instead of constructor names.

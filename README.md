@@ -30,6 +30,40 @@ components, and add/use `mxpak` only when package acquisition is required.
 A widget project's `package.json` normally includes the Mendix Pluggable Widgets
 Tools and their React peer dependencies.
 
+## Typed JSON helpers
+
+`glendix/js/json` delegates serialization and parsing to `gleam_json`.
+Serialization remains source-compatible:
+
+```gleam
+import gleam/json
+import glendix/js/json as glendix_json
+
+glendix_json.stringify(value: json.int(42))
+```
+
+Starting with Glendix 6, parsing requires a decoder for the expected result
+type:
+
+```gleam
+import gleam/dynamic/decode
+import glendix/js/json as glendix_json
+
+glendix_json.parse(
+  from: "{\"name\":\"glendix\"}",
+  using: {
+    use name <- decode.field("name", decode.string)
+    decode.success(name)
+  },
+)
+```
+
+Migrate a pre-6 call from `parse(from: source)` to
+`parse(from: source, using: decoder)`. Invalid JSON returns `InvalidSyntax`,
+while valid JSON that does not match the decoder returns `DecoderMismatch`.
+Both error forms are deterministic and do not expose JavaScript-engine exception
+messages.
+
 ## Experimental native package managers
 
 Glendix can isolate Mendix Pluggable Widgets Tools from the project's package

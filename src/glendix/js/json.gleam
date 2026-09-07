@@ -1,36 +1,52 @@
-//// Serializes and parses typed `gleam/json` values in JavaScript.
+//// Serializes `gleam/json` values and parses JSON into caller-selected types.
 ////
 
+import gleam/dynamic/decode
 import gleam/json
 import gleam/result
 
-/// Represents a JSON parsing failure while preserving the JavaScript reason.
+/// Describes why JSON text could not be parsed into the requested type.
 pub type JsonError {
-  /// JavaScript rejected the supplied JSON text.
-  InvalidJson(reason: String)
+  /// The input is not syntactically valid JSON.
+  InvalidSyntax(reason: JsonSyntaxError)
+  /// The JSON value does not match the requested decoder.
+  DecoderMismatch(errors: List(decode.DecodeError))
+}
+
+/// Describes a deterministic JSON syntax failure.
+pub type JsonSyntaxError {
+  /// The input ended before the JSON value was complete.
+  UnexpectedEndOfInput
+  /// The parser encountered an invalid byte.
+  UnexpectedByte(byte: String)
+  /// The parser encountered an invalid sequence.
+  UnexpectedSequence(sequence: String)
 }
 
 /// Serializes a JSON value.
 pub fn stringify(value value: json.Json) -> String {
-  stringify_raw(value)
+  json.to_string(value)
 }
 
-/// Parses JSON text into a typed JSON value.
-pub fn parse(from source: String) -> Result(json.Json, JsonError) {
-  parse_raw(source)
-  |> result.map_error(fn(error) {
-    InvalidJson(reason: raw_json_error_message(error))
-  })
+/// Parses JSON text with an explicit decoder for the expected result type.
+///
+/// Before Glendix 6, this function returned an untyped `json.Json` value.
+/// Callers now provide a decoder so invalid value shapes fail at this boundary.
+pub fn parse(
+  from source: String,
+  using decoder: decode.Decoder(value),
+) -> Result(value, JsonError) {
+  json.parse(from: source, using: decoder)
+  |> result.map_error(map_decode_error)
 }
 
-type RawJsonError
-
-// -- FFI --
-@external(javascript, "./json_ffi.mjs", "json_stringify")
-fn stringify_raw(value: json.Json) -> String
-
-@external(javascript, "./json_ffi.mjs", "json_parse")
-fn parse_raw(source: String) -> Result(json.Json, RawJsonError)
-
-@external(javascript, "./json_ffi.mjs", "json_error_message")
-fn raw_json_error_message(error: RawJsonError) -> String
+fn map_decode_error(error: json.DecodeError) -> JsonError {
+  case error {
+    json.UnexpectedEndOfInput -> InvalidSyntax(reason: UnexpectedEndOfInput)
+    json.UnexpectedByte(byte) ->
+      InvalidSyntax(reason: UnexpectedByte(byte: byte))
+    json.UnexpectedSequence(sequence) ->
+      InvalidSyntax(reason: UnexpectedSequence(sequence: sequence))
+    json.UnableToDecode(errors) -> DecoderMismatch(errors: errors)
+  }
+}
