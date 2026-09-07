@@ -1,4 +1,18 @@
-//// Creates and manipulates typed JavaScript object handles.
+//// Builds plain, prototype-safe JavaScript data objects from typed entries.
+////
+//// This module owns *data-only* object construction. It converts typed Gleam
+//// scalars into opaque JavaScript values and assembles them into plain objects
+//// whose keys are always ordinary own data properties. Dynamic interop such as
+//// property reads and writes, method calls, and constructor invocation lives in
+//// the separate `glendix/js/reflect` module, so this data boundary never
+//// depends on arbitrary reflection.
+////
+//// Construction keeps a small bespoke FFI (`Object.fromEntries`) on purpose: no
+//// ecosystem package builds a live, prototype-pollution-safe plain object.
+//// `gleam/javascript` only covers arrays, promises, and symbols, and a
+//// `gleam/json` round-trip would be indirect and lossy for live handles. The
+//// retained FFI guarantees that even a `__proto__` entry is stored as ordinary
+//// own data instead of invoking the legacy prototype setter.
 ////
 
 /// Represents a JavaScript value whose runtime shape is intentionally opaque.
@@ -6,9 +20,6 @@ pub type JsValue
 
 /// Represents a JavaScript object handle.
 pub type JsObject
-
-/// Represents a JavaScript constructor handle.
-pub type JsConstructor
 
 /// Represents a JavaScript boolean value.
 pub type JsBoolean {
@@ -61,55 +72,6 @@ pub fn empty() -> JsObject {
   empty_object_raw()
 }
 
-/// Reads an object property.
-pub fn get(from object: JsObject, key key: String) -> JsValue {
-  get_property_raw(object, key)
-}
-
-/// Mutates an object property and returns the same object handle.
-pub fn set(
-  on object: JsObject,
-  key key: String,
-  to value: JsValue,
-) -> JsObject {
-  set_property_raw(object, key, value)
-}
-
-/// Deletes an object property and returns the same object handle.
-pub fn delete(from object: JsObject, key key: String) -> JsObject {
-  delete_property_raw(object, key)
-}
-
-/// Reports whether an object has the given property.
-pub fn has(in object: JsObject, key key: String) -> Bool {
-  has_property_raw(object, key)
-}
-
-/// Calls an object method with a list of arguments.
-pub fn call_method(
-  on object: JsObject,
-  named method: String,
-  with arguments: List(JsValue),
-) -> JsValue {
-  call_method_raw(object, method, arguments)
-}
-
-/// Calls an object method without arguments.
-pub fn call_method_without_arguments(
-  on object: JsObject,
-  named method: String,
-) -> JsValue {
-  call_method_without_arguments_raw(object, method)
-}
-
-/// Creates an object with JavaScript's `new` operator.
-pub fn new_instance(
-  using constructor: JsConstructor,
-  with arguments: List(JsValue),
-) -> JsObject {
-  new_instance_raw(constructor, arguments)
-}
-
 // -- FFI --
 @external(javascript, "./object_ffi.mjs", "identity")
 fn string_raw(value: String) -> JsValue
@@ -131,34 +93,3 @@ fn create_object_raw(entries: List(#(String, JsValue))) -> JsObject
 
 @external(javascript, "./object_ffi.mjs", "empty_object")
 fn empty_object_raw() -> JsObject
-
-@external(javascript, "./object_ffi.mjs", "get_property")
-fn get_property_raw(object: JsObject, key: String) -> JsValue
-
-@external(javascript, "./object_ffi.mjs", "set_property")
-fn set_property_raw(object: JsObject, key: String, value: JsValue) -> JsObject
-
-@external(javascript, "./object_ffi.mjs", "delete_property")
-fn delete_property_raw(object: JsObject, key: String) -> JsObject
-
-@external(javascript, "./object_ffi.mjs", "has_property")
-fn has_property_raw(object: JsObject, key: String) -> Bool
-
-@external(javascript, "./object_ffi.mjs", "call_method")
-fn call_method_raw(
-  object: JsObject,
-  method: String,
-  arguments: List(JsValue),
-) -> JsValue
-
-@external(javascript, "./object_ffi.mjs", "call_method_0")
-fn call_method_without_arguments_raw(
-  object: JsObject,
-  method: String,
-) -> JsValue
-
-@external(javascript, "./object_ffi.mjs", "new_instance")
-fn new_instance_raw(
-  constructor: JsConstructor,
-  arguments: List(JsValue),
-) -> JsObject

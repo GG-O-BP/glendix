@@ -238,6 +238,13 @@ preserving entry order and keeping the last value for a duplicate key. The
 object passes to an external React component as one prop through a Redraw
 attribute, without any application-local React FFI:
 
+`glendix/js/object` is deliberately data-only. Dynamic interop — reading,
+writing, or deleting arbitrary properties, calling methods, and invoking
+constructors — lives in the separate `glendix/js/reflect` module. Reflection is
+the unsafe/dynamic boundary where the caller, not the type system, guarantees a
+property or method exists, so reach for it only when a plain data object is not
+enough.
+
 ```gleam
 import glendix/binding
 import glendix/js/environment
@@ -331,6 +338,17 @@ and no longer ships a handwritten JavaScript adapter. The `from_list` and
 common `list |> array.from_list |> array.to_list` usage is unchanged. The former
 opaque `glendix/js/array.JsArray(element)` type is removed; annotate values with
 `gleam/javascript/array.Array(element)` instead.
+
+`glendix/js/object` is now data-only. Its reflection operations moved unchanged
+to the new `glendix/js/reflect` module: `get`, `set`, `delete`, `has`,
+`call_method`, `call_method_without_arguments`, and `new_instance`, together
+with the `JsConstructor` type. Their names, labels, and behavior are preserved,
+so migrate a pre-split call such as `object.get(from: handle, key: "x")` to
+`reflect.get(from: handle, key: "x")` (add `import glendix/js/reflect`). Data
+construction (`from_entries`, `empty`, `string`, `int`, `float`, `bool`,
+`from_object`) stays in `glendix/js/object`, and `from_entries` keeps its
+prototype-pollution-safe `Object.fromEntries` behavior for keys such as
+`__proto__`.
 
 ## Development
 

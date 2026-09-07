@@ -16,6 +16,7 @@ import glendix/js/array
 import glendix/js/environment
 import glendix/js/object
 import glendix/js/promise as glendix_promise
+import glendix/js/reflect
 import glendix/lustre
 import lustre/attribute
 import lustre/element
@@ -354,6 +355,71 @@ pub fn binding_object_prop_preserves_object_test() -> Nil {
   |> should.equal("{\"theme\":\"dark\",\"locale\":\"en\"}")
 }
 
+/// Verifies reflection reads an existing own property from a data object.
+pub fn reflect_get_reads_existing_property_test() -> Nil {
+  object.from_entries([#("theme", object.string("dark"))])
+  |> reflect.get(key: "theme")
+  |> reflect_value_to_string
+  |> should.equal("dark")
+}
+
+/// Verifies a set mutates in place and returns the same object handle.
+pub fn reflect_set_overwrites_and_returns_same_handle_test() -> Nil {
+  let handle = object.empty()
+  let updated = reflect.set(on: handle, key: "count", to: object.int(7))
+  reflect_same_object(handle, updated)
+  |> should.be_true
+  updated
+  |> reflect.get(key: "count")
+  |> reflect_value_to_string
+  |> should.equal("7")
+}
+
+/// Verifies a delete removes the property and returns the same handle.
+pub fn reflect_delete_removes_property_and_returns_same_handle_test() -> Nil {
+  let handle = object.from_entries([#("theme", object.string("dark"))])
+  let cleared = reflect.delete(from: handle, key: "theme")
+  reflect_same_object(handle, cleared)
+  |> should.be_true
+  cleared
+  |> reflect.has(key: "theme")
+  |> should.be_false
+}
+
+/// Verifies presence checks report both present and absent properties.
+pub fn reflect_has_reports_property_presence_test() -> Nil {
+  let handle = object.from_entries([#("theme", object.string("dark"))])
+  reflect.has(in: handle, key: "theme")
+  |> should.be_true
+  reflect.has(in: handle, key: "missing")
+  |> should.be_false
+}
+
+/// Verifies method calls forward ordered arguments to the receiver.
+pub fn reflect_call_method_passes_arguments_test() -> Nil {
+  reflect_method_object()
+  |> reflect.call_method(named: "add", with: [object.int(2), object.int(5)])
+  |> reflect_value_to_string
+  |> should.equal("7")
+}
+
+/// Verifies argument-free method calls bind the receiver as `this`.
+pub fn reflect_call_method_without_arguments_reads_receiver_test() -> Nil {
+  reflect_method_object()
+  |> reflect.call_method_without_arguments(named: "describe")
+  |> reflect_value_to_string
+  |> should.equal("total:3")
+}
+
+/// Verifies construction invokes `new` and returns the built object.
+pub fn reflect_new_instance_constructs_object_test() -> Nil {
+  reflect_point_constructor()
+  |> reflect.new_instance(with: [object.int(3), object.int(4)])
+  |> reflect.get(key: "x")
+  |> reflect_value_to_string
+  |> should.equal("3")
+}
+
 /// Verifies resolve fulfills a Promise with the supplied value.
 pub fn promise_resolve_yields_value_test() -> promise.Promise(Nil) {
   glendix_promise.resolve("glendix")
@@ -510,6 +576,21 @@ fn element_prop_is(
   element element: redraw.Element,
   key key: String,
   expected expected: object.JsObject,
+) -> Bool
+
+@external(javascript, "./glendix_test_ffi.mjs", "reflect_value_to_string")
+fn reflect_value_to_string(value value: object.JsValue) -> String
+
+@external(javascript, "./glendix_test_ffi.mjs", "reflect_method_object")
+fn reflect_method_object() -> object.JsObject
+
+@external(javascript, "./glendix_test_ffi.mjs", "reflect_point_constructor")
+fn reflect_point_constructor() -> reflect.JsConstructor
+
+@external(javascript, "./glendix_test_ffi.mjs", "reflect_same_object")
+fn reflect_same_object(
+  left left: object.JsObject,
+  right right: object.JsObject,
 ) -> Bool
 
 @external(javascript, "./glendix_test_ffi.mjs", "new_promise_callback_counter")
