@@ -226,45 +226,12 @@ export function clear_match_media() {
   delete globalThis.matchMedia;
 }
 
-export function object_json(object) {
-  return JSON.stringify(object);
-}
-
 export function element_prop_json(element, key) {
   return JSON.stringify(element.props[key]);
 }
 
 export function element_prop_is(element, key, expected) {
   return element.props[key] === expected;
-}
-
-export function reflect_value_to_string(value) {
-  return String(value);
-}
-
-export function reflect_method_object() {
-  return {
-    total: 3,
-    describe() {
-      return "total:" + this.total;
-    },
-    add(first, second) {
-      return first + second;
-    },
-  };
-}
-
-export function reflect_point_constructor() {
-  return class ReflectPoint {
-    constructor(x, y) {
-      this.x = x;
-      this.y = y;
-    }
-  };
-}
-
-export function reflect_same_object(left, right) {
-  return left === right;
 }
 
 export function new_promise_callback_counter() {

@@ -238,13 +238,6 @@ preserving entry order and keeping the last value for a duplicate key. The
 object passes to an external React component as one prop through a Redraw
 attribute, without any application-local React FFI:
 
-`glendix/js/object` is deliberately data-only. Dynamic interop — reading,
-writing, or deleting arbitrary properties, calling methods, and invoking
-constructors — lives in the separate `glendix/js/reflect` module. Reflection is
-the unsafe/dynamic boundary where the caller, not the type system, guarantees a
-property or method exists, so reach for it only when a plain data object is not
-enough.
-
 ```gleam
 import glendix/binding
 import glendix/js/environment
@@ -269,6 +262,14 @@ pub fn themed_component(
   )
 }
 ```
+
+`glendix/js/object` is deliberately data-only. Dynamic interop — reading,
+writing, or deleting arbitrary properties, calling methods, and invoking
+constructors — lives in the separate `glendix/js/reflect` module. Reflection is
+the unsafe/dynamic boundary where the caller, not the type system, guarantees a
+property or method exists. The `__proto__`-as-data guarantee applies to
+`object.from_entries`; reflective assignment retains ordinary JavaScript setter
+semantics, so never pass untrusted property names to `reflect.set`.
 
 ## WebAssembly dependencies
 

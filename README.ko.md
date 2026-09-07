@@ -201,6 +201,13 @@ pub fn themed_component(
 }
 ```
 
+`glendix/js/object`는 의도적으로 데이터 생성만 담당한다. 임의 속성의 읽기·쓰기·삭제,
+메서드 호출, 생성자 실행 같은 동적 interop은 별도의 `glendix/js/reflect` 모듈에
+있다. Reflection은 속성이나 메서드가 실제로 존재함을 타입 시스템이 아니라 호출자가
+보장하는 unsafe/dynamic 경계다. `__proto__`를 일반 데이터로 보존하는 보장은
+`object.from_entries`에만 적용된다. Reflection 대입은 일반 JavaScript setter 의미를
+유지하므로 신뢰할 수 없는 속성 이름을 `reflect.set`에 전달하면 안 된다.
+
 ## WebAssembly 의존성
 
 Glendix는 브라우저 도구가 사용하는 다음 표준 정적 URL 형식의 WebAssembly
@@ -261,6 +268,16 @@ JavaScript 어댑터를 더 이상 포함하지 않는다. `from_list`와 `to_li
 `list |> array.from_list |> array.to_list` 사용은 변경되지 않는다. 기존 opaque
 타입 `glendix/js/array.JsArray(element)`는 제거되었으므로 값의 타입은
 `gleam/javascript/array.Array(element)`로 표기한다.
+
+`glendix/js/object`는 이제 데이터 생성만 담당한다. 기존 reflection 연산인 `get`,
+`set`, `delete`, `has`, `call_method`, `call_method_without_arguments`,
+`new_instance`와 `JsConstructor` 타입은 새 `glendix/js/reflect` 모듈로 이동했다.
+함수 이름·label·동작은 유지된다. 기존
+`object.get(from: handle, key: "x")` 호출은 `import glendix/js/reflect`를 추가하고
+`reflect.get(from: handle, key: "x")`로 변경한다. 데이터 생성 함수
+(`from_entries`, `empty`, `string`, `int`, `float`, `bool`, `from_object`)는
+`glendix/js/object`에 남아 있으며, `from_entries`는 `__proto__` 같은 키에도
+prototype pollution을 일으키지 않는 `Object.fromEntries` 동작을 유지한다.
 
 ## 개발
 

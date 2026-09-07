@@ -9,10 +9,11 @@
 ////
 //// Construction keeps a small bespoke FFI (`Object.fromEntries`) on purpose: no
 //// ecosystem package builds a live, prototype-pollution-safe plain object.
-//// `gleam/javascript` only covers arrays, promises, and symbols, and a
-//// `gleam/json` round-trip would be indirect and lossy for live handles. The
-//// retained FFI guarantees that even a `__proto__` entry is stored as ordinary
-//// own data instead of invoking the legacy prototype setter.
+//// The public `gleam/javascript` API only covers arrays, promises, and symbols,
+//// while Plinth has no general plain-object builder. A `gleam/json` round-trip
+//// would be indirect and lossy for live handles. The retained FFI guarantees
+//// that even a `__proto__` entry is stored as ordinary own data instead of
+//// invoking the legacy prototype setter.
 ////
 
 /// Represents a JavaScript value whose runtime shape is intentionally opaque.

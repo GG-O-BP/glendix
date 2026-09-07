@@ -207,6 +207,15 @@ pub fn themed_component(
 }
 ```
 
+`glendix/js/object` は意図的にデータ構築だけを担当します。任意のプロパティの
+読み取り・書き込み・削除、メソッド呼び出し、コンストラクター実行などの動的な
+interop は、別の `glendix/js/reflect` モジュールにあります。Reflection は、
+プロパティやメソッドの存在を型システムではなく呼び出し側が保証する
+unsafe/dynamic な境界です。`__proto__` を通常のデータとして保持する保証は
+`object.from_entries` にだけ適用されます。Reflection による代入は通常の
+JavaScript setter の意味を維持するため、信頼できないプロパティ名を
+`reflect.set` に渡してはいけません。
+
 ## WebAssembly 依存関係
 
 Glendix は、ブラウザ toolchain が使用する次の標準的な静的 URL 形式の
@@ -267,6 +276,17 @@ JavaScript 設定、最終 MPK ビルドを担当します。
 `list |> array.from_list |> array.to_list` の利用方法は変わりません。従来の
 opaque 型 `glendix/js/array.JsArray(element)` は削除されたので、値の型は
 `gleam/javascript/array.Array(element)` で注釈してください。
+
+`glendix/js/object` はデータ構築専用になりました。従来の reflection 操作である
+`get`、`set`、`delete`、`has`、`call_method`、
+`call_method_without_arguments`、`new_instance` と `JsConstructor` 型は、新しい
+`glendix/js/reflect` モジュールへ移動しました。関数名・ラベル・挙動は維持されて
+います。従来の `object.get(from: handle, key: "x")` は
+`import glendix/js/reflect` を追加し、
+`reflect.get(from: handle, key: "x")` へ変更してください。データ構築関数
+(`from_entries`、`empty`、`string`、`int`、`float`、`bool`、`from_object`) は
+`glendix/js/object` に残り、`from_entries` は `__proto__` のようなキーでも
+prototype pollution を起こさない `Object.fromEntries` の挙動を維持します。
 
 ## 開発
 

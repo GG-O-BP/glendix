@@ -7,6 +7,11 @@
 //// is a constructor. Keep this surface minimal and prefer the data-only
 //// `glendix/js/object` module whenever a plain data object is enough.
 ////
+//// The `__proto__`-as-data guarantee belongs specifically to
+//// `object.from_entries`. `set` deliberately preserves ordinary JavaScript
+//// assignment semantics, so a key such as `__proto__` can invoke an inherited
+//// setter. Do not pass untrusted property names to reflection operations.
+////
 //// Object handles and values flow through `glendix/js/object`, so both modules
 //// share one typed representation of JavaScript objects and values.
 ////
@@ -38,7 +43,7 @@ pub fn delete(
   delete_property_raw(handle, key)
 }
 
-/// Reports whether an object has the given property.
+/// Reports whether an object or its prototype chain has the given property.
 pub fn has(in handle: object.JsObject, key key: String) -> Bool {
   has_property_raw(handle, key)
 }
