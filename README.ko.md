@@ -306,6 +306,21 @@ JavaScript 설정, 최종 MPK 빌드를 담당한다. Marketplace 위젯을 쓰�
 | `gleam run -m glendix/lint_fix` | lint 수정 |
 | `gleam run -m glendix/release` | release 빌드 |
 
+### 명령 실행 경계
+
+`glendix/cmd.exec`는 stdin, stdout, stderr를 상속하는 동기식 shell command
+API를 유지한다. 일반 process 실행은 `shellout`으로 구현하고, 작은 platform
+adapter가 Unix에서는 `/bin/sh -c`, Windows에서는 `ComSpec /d /s /c`를 선택해
+기존 command string과 shell operator의 동작을 보존한다.
+`plinth/node/child_process`는 현재 API가 동기 완료, exit status, 표준 stream
+option을 typed result로 제공하지 않으므로 이 경계에는 사용하지 않는다.
+
+`cmd_ffi.mjs`에 남은 custom command tooling은 의도적으로 Glendix에 특화되어
+있다. 여기에는 bridge 생성과 정리, 개발 watcher, experimental-native runtime
+설정, Node/npm 호환 shim, Rollup/WebAssembly 처리가 포함된다. Gleam build
+command도 좁은 filtered runner를 유지한다. `shellout`은 기존의 stream 상속
+동작을 보존하면서 stderr만 별도로 capture하고 filter할 수 없기 때문이다.
+
 ## 6.0.0 호환성 변경
 
 `glendix/js/array`는 이제 변환을 `gleam/javascript/array`에 위임하며 수기

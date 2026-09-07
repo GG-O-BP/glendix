@@ -314,6 +314,22 @@ JavaScript 設定、最終 MPK ビルドを担当します。
 | `gleam run -m glendix/lint_fix` | lint 修正 |
 | `gleam run -m glendix/release` | release ビルド |
 
+### コマンド実行境界
+
+`glendix/cmd.exec` は stdin、stdout、stderr を継承する同期 shell command
+API を維持します。一般的な process 実行は `shellout` で実装し、小さな
+platform adapter が Unix では `/bin/sh -c`、Windows では
+`ComSpec /d /s /c` を選択することで、既存の command string と shell
+operator の挙動を保ちます。`plinth/node/child_process` は、現在の API が同期
+完了、exit status、標準 stream option を typed result として提供しないため、
+この境界には使用しません。
+
+`cmd_ffi.mjs` に残る custom command tooling は、意図的に Glendix 固有です。
+bridge の生成と cleanup、開発 watcher、experimental-native runtime 設定、
+Node/npm 互換 shim、Rollup/WebAssembly 処理が含まれます。Gleam build
+command も限定的な filtered runner を維持します。`shellout` では既存の stream
+継承を保ちながら stderr だけを capture して filter できないためです。
+
 ## 6.0.0 の破壊的変更
 
 `glendix/js/array` は変換を `gleam/javascript/array` に委譲するようになり、手書き

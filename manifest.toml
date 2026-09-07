@@ -28,6 +28,7 @@ packages = [
   { name = "plinth", version = "0.11.0", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_json", "gleam_stdlib"], otp_app = "plinth", source = "hex", outer_checksum = "D30FDE8FC11EB76538AB498ACFF5399D0AE27993C74D63BE05AFE8CE80C4C839" },
   { name = "redraw", version = "19.2.2", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_stdlib"], otp_app = "redraw", source = "hex", outer_checksum = "B8CEEB74E8846CE10B8360B924DAD22441B61D947F9449854164F0686C4B8661" },
   { name = "redraw_dom", version = "19.2.2", build_tools = ["gleam"], requirements = ["gleam_fetch", "gleam_stdlib", "redraw"], otp_app = "redraw_dom", source = "hex", outer_checksum = "80278296AD6E3D4457D6FF6A14FEA3E90696284BEA297BDE10E430FC4CE726B8" },
+  { name = "shellout", version = "1.8.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "shellout", source = "hex", outer_checksum = "C416356D45151F298108C9DB9CD1EDE0313F620B5EDBB5766CD7237659D87841" },
   { name = "simplifile", version = "2.7.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "A2727627B063E87351934C7F7F008F2D1FDB16F6DE0B8C79F9E46459CFC9C164" },
   { name = "term_size", version = "1.0.1", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "term_size", source = "hex", outer_checksum = "D00BD2BC8FB3EBB7E6AE076F3F1FF2AC9D5ED1805F004D0896C784D06C6645F1" },
   { name = "tom", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "tom", source = "hex", outer_checksum = "DCF04CB7AB35D58CFC598C66EA2E1816D160759802C89B2BA6238780D59BC256" },
@@ -46,6 +47,7 @@ mendraw = { version = ">= 2.0.0 and < 3.0.0" }
 plinth = { version = ">= 0.11.0 and < 1.0.0" }
 redraw = { version = ">= 19.2.2 and < 20.0.0" }
 redraw_dom = { version = ">= 19.2.2 and < 20.0.0" }
+shellout = { version = ">= 1.8.0 and < 2.0.0" }
 simplifile = { version = ">= 2.6.0 and < 3.0.0" }
 term_size = { version = ">= 1.0.1 and < 2.0.0" }
 tom = { version = ">= 2.1.0 and < 3.0.0" }
